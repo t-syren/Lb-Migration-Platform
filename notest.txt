@@ -1,0 +1,4 @@
+venv - lb
+https://databrickslabs.github.io/lakebridge/docs/installation/
+
+to authenticate - databricks auth login --host https://adb-204242957656703.3.azuredatabricks.net

@@ -1,0 +1,8 @@
+# Lakebridge Analyzer UI – Python dependencies
+# Install with: pip install -r requirements.txt
+
+streamlit>=1.35.0
+pandas>=2.0.0
+openpyxl>=3.1.0        # required by pandas for .xlsx read/write
+altair>=5.0.0          # charts (bundled with Streamlit, explicit pin for safety)
+databricks-sdk>=0.28.0 # Databricks SDK (auth helpers on Databricks Apps)
