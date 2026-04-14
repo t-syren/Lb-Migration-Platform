@@ -150,160 +150,152 @@ st.markdown("""
 <style>
 /* ── Fonts & base ─────────────────────────────────────────────────────────── */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-
 html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 
-/* ── Hide default Streamlit chrome ───────────────────────────────────────── */
+/* ── Hide Streamlit chrome ───────────────────────────────────────────────── */
 #MainMenu, footer, header { visibility: hidden; }
-.block-container { padding-top: 2rem; padding-bottom: 3rem; max-width: 1200px; }
+.block-container { padding-top: 1.75rem; padding-bottom: 3rem; max-width: 1100px; }
 
-/* ── Hero ────────────────────────────────────────────────────────────────── */
-.hero {
-    padding: 2.5rem 2rem 2rem;
-    background: linear-gradient(135deg, #fff5f3 0%, #fff 60%);
-    border-radius: 16px;
-    border: 1px solid #ffe4de;
-    margin-bottom: 2rem;
+/* ── Sidebar ─────────────────────────────────────────────────────────────── */
+[data-testid="stSidebar"] {
+    background: #0f172a !important;
+    border-right: 1px solid #1e293b !important;
+    min-width: 210px !important;
+    max-width: 230px !important;
 }
-.hero-eyebrow {
-    font-size: 0.78rem; font-weight: 600; letter-spacing: 0.1em;
-    text-transform: uppercase; color: #FF3621; margin-bottom: 0.5rem;
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] span,
+[data-testid="stSidebar"] div { color: #94a3b8; }
+[data-testid="stSidebar"] hr { border-color: #1e293b !important; }
+[data-testid="stSidebar"] .stRadio > label { display: none; }
+[data-testid="stSidebar"] .stRadio > div {
+    display: flex; flex-direction: column; gap: 2px;
 }
-.hero-title {
-    font-size: 2.6rem; font-weight: 800; line-height: 1.15;
-    background: linear-gradient(135deg, #1a1a1a 30%, #FF3621 100%);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    background-clip: text; margin: 0 0 0.75rem;
+[data-testid="stSidebar"] .stRadio label {
+    display: flex !important; align-items: center;
+    padding: 0.55rem 0.85rem !important; border-radius: 7px !important;
+    font-size: 0.88rem !important; font-weight: 500 !important;
+    color: #94a3b8 !important; cursor: pointer;
+    transition: background 0.12s, color 0.12s;
 }
-.hero-sub {
-    font-size: 1.05rem; color: #6b7280; max-width: 640px; line-height: 1.6;
+[data-testid="stSidebar"] .stRadio label:hover {
+    background: #1e293b !important; color: #e2e8f0 !important;
 }
-.hero-badges { margin-top: 1.25rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
-.badge {
-    display: inline-flex; align-items: center; gap: 0.3rem;
-    background: white; border: 1px solid #e5e7eb; border-radius: 20px;
-    padding: 4px 12px; font-size: 0.78rem; font-weight: 500; color: #374151;
+[data-testid="stSidebar"] .stRadio label[data-checked="true"],
+[data-testid="stSidebar"] .stRadio input:checked + label {
+    background: #1e3a5f !important; color: #93c5fd !important; font-weight: 600 !important;
 }
+
+/* ── Page header ─────────────────────────────────────────────────────────── */
+.page-hdr {
+    display: flex; align-items: flex-start; gap: 0.9rem;
+    border-bottom: 1px solid #e2e8f0; padding-bottom: 1.25rem; margin-bottom: 2rem;
+}
+.page-hdr-icon {
+    width: 44px; height: 44px; border-radius: 10px;
+    background: #0f172a; display: flex; align-items: center;
+    justify-content: center; font-size: 1.2rem; flex-shrink: 0;
+}
+.page-hdr h1 {
+    font-size: 1.45rem; font-weight: 800; color: #0f172a;
+    margin: 0 0 0.1rem; letter-spacing: -0.025em; line-height: 1.2;
+}
+.page-hdr p { color: #64748b; font-size: 0.82rem; margin: 0; }
 
 /* ── Cards ───────────────────────────────────────────────────────────────── */
 .card {
-    background: white; border: 1px solid #e5e7eb;
-    border-radius: 14px; padding: 1.5rem 1.75rem;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-    height: 100%;
+    background: #fff; border: 1px solid #e2e8f0;
+    border-radius: 12px; padding: 1.4rem 1.6rem;
+    box-shadow: 0 1px 3px rgba(15,23,42,0.04);
 }
 .card-title {
-    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em;
-    text-transform: uppercase; color: #9ca3af; margin-bottom: 1rem;
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: #94a3b8; margin-bottom: 1rem;
     display: flex; align-items: center; gap: 0.4rem;
 }
 
 /* ── Step indicator ──────────────────────────────────────────────────────── */
 .step-num {
-    width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+    width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
     display: inline-flex; align-items: center; justify-content: center;
-    font-size: 0.82rem; font-weight: 700;
-    background: #FF3621; color: white; margin-right: 0.5rem;
+    font-size: 0.78rem; font-weight: 700;
+    background: #0f172a; color: white; margin-right: 0.45rem;
 }
-.step-num.teal { background: #0D9488; }
+.step-num.teal { background: #0f766e; }
 
 /* ── Extension tags ──────────────────────────────────────────────────────── */
 .ext-wrap { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 0.5rem; }
 .ext-tag {
-    background: #fff0ee; color: #FF3621;
-    border: 1px solid #fecaca; border-radius: 5px;
-    padding: 2px 8px; font-size: 0.74rem; font-family: 'Courier New', monospace;
+    background: #f8fafc; color: #475569;
+    border: 1px solid #e2e8f0; border-radius: 4px;
+    padding: 2px 7px; font-size: 0.72rem; font-family: 'Courier New', monospace;
     font-weight: 600;
 }
-.ext-tag.teal {
-    background: #f0fdfa; color: #0D9488;
-    border: 1px solid #99f6e4;
-}
+.ext-tag.teal { background: #f0fdfa; color: #0f766e; border: 1px solid #99f6e4; }
 
-/* ── Run button ──────────────────────────────────────────────────────────── */
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
 div[data-testid="stButton"] button {
-    background: #FF3621 !important; color: white !important;
-    border: none !important; border-radius: 10px !important;
-    font-weight: 700 !important; font-size: 1rem !important;
-    padding: 0.65rem 2rem !important;
-    box-shadow: 0 4px 14px rgba(255, 54, 33, 0.35) !important;
-    transition: all 0.2s ease !important;
+    background: #0f172a !important; color: #f1f5f9 !important;
+    border: none !important; border-radius: 8px !important;
+    font-weight: 600 !important; font-size: 0.92rem !important;
+    padding: 0.6rem 2rem !important;
+    box-shadow: 0 1px 3px rgba(15,23,42,0.18) !important;
+    transition: all 0.15s ease !important;
 }
 div[data-testid="stButton"] button:hover {
-    background: #d92d1a !important;
-    box-shadow: 0 6px 20px rgba(255, 54, 33, 0.45) !important;
+    background: #1e293b !important;
+    box-shadow: 0 4px 12px rgba(15,23,42,0.22) !important;
     transform: translateY(-1px) !important;
 }
 div[data-testid="stButton"] button:disabled {
-    background: #e5e7eb !important; color: #9ca3af !important;
+    background: #e2e8f0 !important; color: #94a3b8 !important;
     box-shadow: none !important; transform: none !important;
 }
 
 /* ── Metric cards ────────────────────────────────────────────────────────── */
 .metric-card {
-    background: white; border: 1px solid #e5e7eb; border-radius: 12px;
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
     padding: 1.25rem 1rem; text-align: center;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    box-shadow: 0 1px 3px rgba(15,23,42,0.04);
 }
-.metric-icon { font-size: 1.5rem; margin-bottom: 0.4rem; }
-.metric-val {
-    font-size: 2.2rem; font-weight: 800; line-height: 1;
-    background: linear-gradient(135deg, #FF3621, #ff6b4a);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    background-clip: text;
-}
+.metric-icon { font-size: 1.4rem; margin-bottom: 0.4rem; }
+.metric-val { font-size: 2rem; font-weight: 800; line-height: 1; color: #0f172a; }
 .metric-lbl {
-    font-size: 0.72rem; font-weight: 600; color: #9ca3af;
-    text-transform: uppercase; letter-spacing: 0.06em; margin-top: 0.3rem;
+    font-size: 0.68rem; font-weight: 700; color: #94a3b8;
+    text-transform: uppercase; letter-spacing: 0.07em; margin-top: 0.35rem;
 }
 
 /* ── Results header ──────────────────────────────────────────────────────── */
-.results-header {
-    display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 1.25rem;
-}
+.results-header { display: flex; align-items: center; margin-bottom: 1.25rem; }
 .results-title {
-    font-size: 1.3rem; font-weight: 700; color: #111827;
+    font-size: 1.1rem; font-weight: 700; color: #0f172a;
     display: flex; align-items: center; gap: 0.5rem;
 }
 .success-pill {
-    background: #d1fae5; color: #065f46; border-radius: 20px;
-    padding: 3px 12px; font-size: 0.78rem; font-weight: 600;
+    background: #dcfce7; color: #166534; border-radius: 20px;
+    padding: 2px 10px; font-size: 0.73rem; font-weight: 600;
 }
 
 /* ── Section divider ─────────────────────────────────────────────────────── */
-.section-sep {
-    border: none; border-top: 2px dashed #f3f4f6;
-    margin: 2rem 0;
-}
-
-/* ── Empty state ─────────────────────────────────────────────────────────── */
-.empty-state {
-    text-align: center; padding: 3rem 1rem; color: #9ca3af;
-}
-.empty-state .icon { font-size: 3rem; margin-bottom: 0.75rem; }
-.empty-state p { font-size: 0.95rem; margin: 0; }
-
-/* ── Tab tweaks ──────────────────────────────────────────────────────────── */
-button[data-baseweb="tab"] { font-size: 0.9rem !important; font-weight: 600 !important; }
+.section-sep { border: none; border-top: 1px solid #e2e8f0; margin: 1.75rem 0; }
 
 /* ── File tree ───────────────────────────────────────────────────────────── */
 .file-tree {
-    background: #0f1117; color: #e2e8f0; border-radius: 10px;
+    background: #0f172a; color: #e2e8f0; border-radius: 10px;
     padding: 1rem 1.25rem; font-family: 'Courier New', monospace; font-size: 0.82rem;
     line-height: 1.7; max-height: 360px; overflow-y: auto;
 }
 .file-tree .dir  { color: #60a5fa; font-weight: 600; }
-.file-tree .file { color: #a3e635; }
-.file-tree .meta { color: #6b7280; }
+.file-tree .file { color: #86efac; }
+.file-tree .meta { color: #475569; }
 
 /* ── Info box ────────────────────────────────────────────────────────────── */
 .info-box {
-    background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px;
+    background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;
     padding: 0.85rem 1.1rem; margin-top: 0.5rem;
 }
-.info-box strong { color: #1e40af; }
-.info-box p { color: #1e3a8a; font-size: 0.85rem; margin: 0.2rem 0 0; }
+.info-box strong { color: #0f172a; }
+.info-box p { color: #475569; font-size: 0.85rem; margin: 0.2rem 0 0; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -783,191 +775,182 @@ def build_file_tree_html(directory: str) -> tuple[str, int, int]:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# HERO
+# SIDEBAR NAVIGATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-st.markdown("""
-<div class="hero">
-    <div class="hero-eyebrow">⚡ SyrenBridge by SyrenCloud  ·  Powered by Databricks Lakebridge</div>
-    <div class="hero-title">Code Migration Platform</div>
-    <div class="hero-sub">
-        Analyze your legacy code for migration readiness, then transpile it directly
-        to PySpark or SparkSQL — all in one unified platform.
+with st.sidebar:
+    st.markdown("""
+    <div style="padding:1.75rem 0.5rem 1.25rem;">
+        <div style="font-size:1.3rem;font-weight:800;color:#f1f5f9;
+                    letter-spacing:-0.03em;line-height:1;">
+            Syren<span style="color:#ef4444;">Bridge</span>
+        </div>
+        <div style="font-size:0.67rem;color:#475569;margin-top:4px;font-weight:600;
+                    letter-spacing:0.1em;text-transform:uppercase;">
+            Migration Suite
+        </div>
     </div>
-    <div class="hero-badges">
-        <span class="badge">🔍 Analyzer — 36 Technologies</span>
-        <span class="badge">⚡ Transpiler — 11 Dialects</span>
-        <span class="badge">🎯 PySpark &amp; SparkSQL Output</span>
-        <span class="badge">☁️ Runs on Databricks Apps</span>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<hr style='border-color:#1e293b;margin:0 0 0.75rem;'>", unsafe_allow_html=True)
+
+    selected_page = st.radio(
+        "Navigation",
+        ["Get Started", "Analyzer", "Transpiler", "Settings"],
+        label_visibility="collapsed",
+        key="main_nav",
+    )
+
+    st.markdown("<div style='height:1.5rem'></div>", unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="border-top:1px solid #1e293b;padding-top:1.25rem;padding-left:0.5rem;">
+        <div style="font-size:0.64rem;font-weight:700;color:#334155;letter-spacing:0.1em;
+                    text-transform:uppercase;margin-bottom:0.65rem;">Suite Capabilities</div>
+        <div style="font-size:0.78rem;color:#475569;line-height:1.9;">
+            🔍 &nbsp;36 analysis technologies<br>
+            ⚡ &nbsp;11 transpiler dialects<br>
+            🗄️ &nbsp;Databricks SQL output<br>
+            🔁 &nbsp;Oozie workflow conversion<br>
+            ☁️ &nbsp;Runs on Databricks Apps
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="position:absolute;bottom:1.5rem;left:1rem;right:1rem;">
+        <div style="font-size:0.68rem;color:#334155;text-align:center;">
+            © 2024 Syren Cloud
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ── Page header renderer ──────────────────────────────────────────────────────
+_PAGE_META = {
+    "Get Started": ("📚", "Get Started", "Overview, capabilities, and how to use SyrenBridge"),
+    "Analyzer":    ("🔍", "Code Analyzer", "Analyze legacy source code for migration readiness"),
+    "Transpiler":  ("⚡", "Code Transpiler", "Convert source code to Databricks-compatible output"),
+    "Settings":    ("⚙️", "Settings", "Configure Databricks workspace credentials"),
+}
+_icon, _title, _subtitle = _PAGE_META[selected_page]
+st.markdown(f"""
+<div class="page-hdr">
+    <div class="page-hdr-icon">{_icon}</div>
+    <div>
+        <h1>{_title}</h1>
+        <p>{_subtitle} &nbsp;·&nbsp; SyrenBridge by Syren Cloud</p>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MAIN TABS
+# PAGE — GET STARTED
 # ══════════════════════════════════════════════════════════════════════════════
 
-tab_start, tab_analyze, tab_transpile, tab_settings = st.tabs([
-    "📚  Get Started",
-    "🔍  Analyzer",
-    "⚡  Transpiler",
-    "⚙️  Settings",
-])
+if selected_page == "Get Started":
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 1 — GET STARTED
-# ══════════════════════════════════════════════════════════════════════════════
-
-with tab_start:
-
+    # ── Intro ─────────────────────────────────────────────────────────────────
     st.markdown("""
-    <div style="padding:0.5rem 0 2rem;max-width:760px;">
-        <h2 style="font-size:1.6rem;font-weight:800;color:#111827;margin-bottom:0.5rem;">
-            Welcome to SyrenBridge
-        </h2>
-        <p style="color:#6b7280;font-size:0.97rem;line-height:1.65;">
-            SyrenBridge is a <strong>code migration accelerator</strong> built by
-            <strong>SyrenCloud</strong> on top of <strong>Databricks Labs Lakebridge</strong>.
-            It helps data engineers move legacy SQL, ETL pipelines, and workflow orchestration
-            code to <strong>Databricks</strong> — quickly and accurately.
+    <div style="max-width:720px;margin-bottom:2rem;">
+        <p style="color:#475569;font-size:0.95rem;line-height:1.7;margin:0;">
+            SyrenBridge is Syren Cloud's enterprise migration suite for moving legacy data platforms
+            to <strong>Databricks</strong>. It covers the full migration journey — from automated
+            analysis of your existing codebase to production-ready converted code — supporting
+            <strong>36 source technologies</strong> across SQL, ETL, and workflow orchestration.
         </p>
     </div>
     """, unsafe_allow_html=True)
 
-    # ── How to use ────────────────────────────────────────────────────────────
+    # ── Quick-start steps ─────────────────────────────────────────────────────
     st.markdown("""
-    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;
-                padding:1.25rem 1.5rem;margin-bottom:1.75rem;">
-        <div style="font-size:0.85rem;font-weight:700;color:#065f46;
-                    letter-spacing:0.05em;margin-bottom:0.75rem;">HOW TO USE THIS APP</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;
+                padding:1.5rem 1.75rem;margin-bottom:2rem;">
+        <div style="font-size:0.7rem;font-weight:700;color:#94a3b8;letter-spacing:0.1em;
+                    text-transform:uppercase;margin-bottom:1.1rem;">Quick Start</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1.25rem;">
             <div>
-                <div style="font-weight:700;color:#111827;margin-bottom:0.2rem;">
-                    🔍 Step 1 — Analyze
+                <div style="font-size:0.7rem;font-weight:700;color:#94a3b8;letter-spacing:0.08em;
+                            text-transform:uppercase;margin-bottom:0.3rem;">Step 1</div>
+                <div style="font-weight:700;color:#0f172a;margin-bottom:0.3rem;font-size:0.95rem;">
+                    🔍 Analyze
                 </div>
-                <div style="font-size:0.88rem;color:#6b7280;line-height:1.55;">
-                    Go to the <strong>Analyzer</strong> tab. Select your source technology,
-                    upload your source files, and run the analysis. You'll get a migration-readiness
-                    Excel report covering object inventory, function usage, and SQL categories.
+                <div style="font-size:0.85rem;color:#64748b;line-height:1.6;">
+                    Select your source technology, upload source files, and get a
+                    migration-readiness report — object inventory, function usage, SQL category breakdown.
                 </div>
             </div>
-            <div>
-                <div style="font-weight:700;color:#111827;margin-bottom:0.2rem;">
-                    ⚡ Step 2 — Transpile
+            <div style="border-left:1px solid #e2e8f0;padding-left:1.25rem;">
+                <div style="font-size:0.7rem;font-weight:700;color:#94a3b8;letter-spacing:0.08em;
+                            text-transform:uppercase;margin-bottom:0.3rem;">Step 2</div>
+                <div style="font-weight:700;color:#0f172a;margin-bottom:0.3rem;font-size:0.95rem;">
+                    ⚡ Transpile
                 </div>
-                <div style="font-size:0.88rem;color:#6b7280;line-height:1.55;">
-                    Go to the <strong>Transpiler</strong> tab. Choose your source dialect
-                    (e.g. Teradata, Oracle, HiveSQL, Oozie), upload the files, and download
-                    the converted Databricks-compatible output.
+                <div style="font-size:0.85rem;color:#64748b;line-height:1.6;">
+                    Select your source dialect, upload files, and download Databricks-compatible
+                    output — SQL, PySpark notebooks, or Workflow JSON.
                 </div>
             </div>
-        </div>
-        <div style="margin-top:1rem;font-size:0.84rem;color:#374151;">
-            <strong>💡 New here?</strong> Start with the Analyzer to understand your migration scope,
-            then use the Transpiler to convert the code automatically. If you're running locally,
-            configure your Databricks workspace credentials in the <strong>⚙️ Settings</strong> tab first.
+            <div style="border-left:1px solid #e2e8f0;padding-left:1.25rem;">
+                <div style="font-size:0.7rem;font-weight:700;color:#94a3b8;letter-spacing:0.08em;
+                            text-transform:uppercase;margin-bottom:0.3rem;">First time?</div>
+                <div style="font-weight:700;color:#0f172a;margin-bottom:0.3rem;font-size:0.95rem;">
+                    ⚙️ Configure
+                </div>
+                <div style="font-size:0.85rem;color:#64748b;line-height:1.6;">
+                    If running locally, go to <strong>Settings</strong> and enter your Databricks
+                    workspace URL and token. On Databricks Apps this is automatic.
+                </div>
+            </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # ── What is Lakebridge vs. SyrenBridge ───────────────────────────────────
-    gs_col1, gs_col2 = st.columns(2, gap="large")
-
-    with gs_col1:
-        st.markdown("""
-        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:1.25rem 1.5rem;height:100%;">
-            <div style="font-size:0.82rem;font-weight:700;color:#6366f1;
-                        letter-spacing:0.05em;margin-bottom:0.6rem;">
-                POWERED BY DATABRICKS LABS LAKEBRIDGE
-            </div>
-            <div style="font-weight:700;font-size:1rem;color:#111827;margin-bottom:0.5rem;">
-                What Lakebridge provides
-            </div>
-            <ul style="font-size:0.87rem;color:#374151;line-height:1.7;padding-left:1.1rem;margin:0;">
-                <li>Analysis of <strong>36 source technologies</strong> (SQL, ETL, code)</li>
-                <li>Transpilation for <strong>10 CLI-based dialects</strong> (Teradata, Oracle, Netezza, Snowflake, Synapse, MS SQL, Informatica, Informatica Cloud, DataStage, SAP BODS)</li>
-                <li>Migration-readiness Excel reports with object inventory, function xref, and SQL category breakdown</li>
-                <li>CLI-driven — runs as a subprocess behind the scenes</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with gs_col2:
-        st.markdown("""
-        <div style="background:#fff5f3;border:1px solid #fecaca;border-radius:12px;padding:1.25rem 1.5rem;height:100%;">
-            <div style="font-size:0.82rem;font-weight:700;color:#dc2626;
-                        letter-spacing:0.05em;margin-bottom:0.6rem;">
-                BUILT BY SYRENCLOUD — ON TOP OF LAKEBRIDGE
-            </div>
-            <div style="font-weight:700;font-size:1rem;color:#111827;margin-bottom:0.5rem;">
-                What SyrenBridge adds
-            </div>
-            <ul style="font-size:0.87rem;color:#374151;line-height:1.7;padding-left:1.1rem;margin:0;">
-                <li><strong>HiveSQL (Cloudera)</strong> — custom engine using sqlglot to produce
-                    Databricks SQL dialect output. Strips STORED AS, ROW FORMAT, SERDE, and HDFS paths automatically.</li>
-                <li><strong>Oozie Workflow</strong> — converts <code>workflow.xml</code> to
-                    Databricks Jobs API 2.1 JSON. Handles hive, spark, shell, and java actions with dependency graph.</li>
-                <li>A polished Streamlit UI running on Databricks Apps</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown("<div style='height:1.5rem'></div>", unsafe_allow_html=True)
-
-    # ── Transpiler Dialects table ─────────────────────────────────────────────
+    # ── Transpiler dialects table ─────────────────────────────────────────────
     st.markdown("""
-    <div style="font-weight:700;font-size:1rem;color:#111827;margin-bottom:0.75rem;">
-        ⚡ Transpiler — All 11 Supported Dialects
-    </div>
+    <div style="font-size:0.7rem;font-weight:700;color:#94a3b8;letter-spacing:0.1em;
+                text-transform:uppercase;margin-bottom:0.75rem;">Transpiler — 11 Supported Dialects</div>
     """, unsafe_allow_html=True)
 
     dialect_rows = [
-        ("DataStage",           "Lakebridge CLI",          "PySpark / SparkSQL",           ".dsx .xml .pjb"),
-        ("HiveSQL (Cloudera)",  "SyrenBridge (sqlglot)",   "Databricks SQL (.sql) / PySpark (.py)", ".hql .hive .sql .ddl .dml"),
-        ("Informatica",         "Lakebridge CLI",          "PySpark / SparkSQL",           ".xml .session .wf .m .mplt .lkp"),
-        ("Informatica Cloud",   "Lakebridge CLI",          "PySpark / SparkSQL",           ".xml .json .session"),
-        ("MS SQL Server",       "Lakebridge CLI",          "PySpark / SparkSQL",           ".sql .ddl .dml .proc .view"),
-        ("Netezza",             "Lakebridge CLI",          "PySpark / SparkSQL",           ".sql .ddl .dml .nzb"),
-        ("Oracle",              "Lakebridge CLI",          "PySpark / SparkSQL",           ".sql .ddl .dml .pls .prc .vw"),
-        ("Snowflake",           "Lakebridge CLI",          "PySpark / SparkSQL",           ".sql .ddl .dml"),
-        ("Synapse",             "Lakebridge CLI",          "PySpark / SparkSQL",           ".sql .ddl .dml .json"),
-        ("Teradata",            "Lakebridge CLI",          "PySpark / SparkSQL",           ".sql .bteq .tdl .tpt .ddl .dml"),
-        ("Oozie (Workflow)",    "SyrenBridge (lxml)",      "Databricks Jobs JSON",         ".xml"),
+        ("DataStage",          "Databricks Labs Lakebridge",  "PySpark / SparkSQL",       ".dsx .xml .pjb"),
+        ("HiveSQL (Cloudera)", "sqlglot (Databricks dialect)", "Databricks SQL / PySpark", ".hql .hive .sql .ddl .dml"),
+        ("Informatica",        "Databricks Labs Lakebridge",  "PySpark / SparkSQL",       ".xml .session .wf .m .mplt .lkp"),
+        ("Informatica Cloud",  "Databricks Labs Lakebridge",  "PySpark / SparkSQL",       ".xml .json .session"),
+        ("MS SQL Server",      "Databricks Labs Lakebridge",  "PySpark / SparkSQL",       ".sql .ddl .dml .proc .view"),
+        ("Netezza",            "Databricks Labs Lakebridge",  "PySpark / SparkSQL",       ".sql .ddl .dml .nzb"),
+        ("Oracle",             "Databricks Labs Lakebridge",  "PySpark / SparkSQL",       ".sql .ddl .dml .pls .prc .vw"),
+        ("Snowflake",          "Databricks Labs Lakebridge",  "PySpark / SparkSQL",       ".sql .ddl .dml"),
+        ("Synapse",            "Databricks Labs Lakebridge",  "PySpark / SparkSQL",       ".sql .ddl .dml .json"),
+        ("Teradata",           "Databricks Labs Lakebridge",  "PySpark / SparkSQL",       ".sql .bteq .tdl .tpt .ddl .dml"),
+        ("Oozie (Workflow)",   "lxml (built-in parser)",      "Databricks Jobs JSON",     ".xml"),
     ]
 
     gs_table_rows = ""
     for i, (dialect, engine, output, exts) in enumerate(dialect_rows):
-        bg = "#fafafa" if i % 2 == 0 else "#fff"
-        custom_badge = ""
-        if "SyrenBridge" in engine:
-            custom_badge = (
-                '<span style="font-size:0.68rem;background:#fef3c7;color:#92400e;'
-                'border:1px solid #fcd34d;border-radius:4px;padding:1px 5px;'
-                'font-weight:600;margin-left:4px;">CUSTOM</span>'
-            )
+        bg = "#ffffff" if i % 2 == 0 else "#f8fafc"
         gs_table_rows += f"""
         <tr style="background:{bg};">
-            <td style="padding:0.55rem 0.75rem;font-weight:600;color:#111827;">{dialect}</td>
-            <td style="padding:0.55rem 0.75rem;color:#374151;">{engine}{custom_badge}</td>
-            <td style="padding:0.55rem 0.75rem;color:#374151;">{output}</td>
-            <td style="padding:0.55rem 0.75rem;color:#6b7280;font-size:0.8rem;">{exts}</td>
+            <td style="padding:0.55rem 0.85rem;font-weight:600;color:#0f172a;font-size:0.87rem;">{dialect}</td>
+            <td style="padding:0.55rem 0.85rem;color:#475569;font-size:0.84rem;">{engine}</td>
+            <td style="padding:0.55rem 0.85rem;color:#475569;font-size:0.84rem;">{output}</td>
+            <td style="padding:0.55rem 0.85rem;color:#94a3b8;font-size:0.78rem;font-family:monospace;">{exts}</td>
         </tr>"""
 
     st.markdown(f"""
-    <div style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;margin-bottom:1.5rem;">
-        <table style="width:100%;border-collapse:collapse;font-size:0.87rem;">
+    <div style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;margin-bottom:2rem;">
+        <table style="width:100%;border-collapse:collapse;">
             <thead>
-                <tr style="background:#f3f4f6;">
-                    <th style="padding:0.6rem 0.75rem;text-align:left;color:#6b7280;
-                               font-size:0.75rem;font-weight:700;letter-spacing:0.05em;">DIALECT</th>
-                    <th style="padding:0.6rem 0.75rem;text-align:left;color:#6b7280;
-                               font-size:0.75rem;font-weight:700;letter-spacing:0.05em;">ENGINE</th>
-                    <th style="padding:0.6rem 0.75rem;text-align:left;color:#6b7280;
-                               font-size:0.75rem;font-weight:700;letter-spacing:0.05em;">OUTPUT</th>
-                    <th style="padding:0.6rem 0.75rem;text-align:left;color:#6b7280;
-                               font-size:0.75rem;font-weight:700;letter-spacing:0.05em;">FILE TYPES</th>
+                <tr style="background:#f1f5f9;border-bottom:1px solid #e2e8f0;">
+                    <th style="padding:0.6rem 0.85rem;text-align:left;font-size:0.68rem;
+                               font-weight:700;letter-spacing:0.08em;color:#64748b;text-transform:uppercase;">Dialect</th>
+                    <th style="padding:0.6rem 0.85rem;text-align:left;font-size:0.68rem;
+                               font-weight:700;letter-spacing:0.08em;color:#64748b;text-transform:uppercase;">Engine</th>
+                    <th style="padding:0.6rem 0.85rem;text-align:left;font-size:0.68rem;
+                               font-weight:700;letter-spacing:0.08em;color:#64748b;text-transform:uppercase;">Output</th>
+                    <th style="padding:0.6rem 0.85rem;text-align:left;font-size:0.68rem;
+                               font-weight:700;letter-spacing:0.08em;color:#64748b;text-transform:uppercase;">File Types</th>
                 </tr>
             </thead>
             <tbody>{gs_table_rows}</tbody>
@@ -977,78 +960,71 @@ with tab_start:
 
     # ── Analyzer technologies ─────────────────────────────────────────────────
     st.markdown("""
-    <div style="font-weight:700;font-size:1rem;color:#111827;margin-bottom:0.75rem;">
-        🔍 Analyzer — All 36 Supported Technologies
-    </div>
+    <div style="font-size:0.7rem;font-weight:700;color:#94a3b8;letter-spacing:0.1em;
+                text-transform:uppercase;margin-bottom:0.75rem;">Analyzer — 36 Supported Technologies</div>
     """, unsafe_allow_html=True)
 
-    sql_techs    = [n for _, n, c in TECHNOLOGIES if c == "SQL"]
-    etl_techs    = [n for _, n, c in TECHNOLOGIES if c == "ETL"]
-    code_techs   = [n for _, n, c in TECHNOLOGIES if c == "Code"]
+    sql_techs  = [n for _, n, c in TECHNOLOGIES if c == "SQL"]
+    etl_techs  = [n for _, n, c in TECHNOLOGIES if c == "ETL"]
+    code_techs = [n for _, n, c in TECHNOLOGIES if c == "Code"]
 
     gs_a1, gs_a2, gs_a3 = st.columns(3, gap="medium")
     def _tech_list(techs):
-        return "".join(f'<li style="padding:0.15rem 0;color:#374151;">{t}</li>' for t in techs)
+        return "".join(
+            f'<li style="padding:0.1rem 0;color:#475569;font-size:0.85rem;">{t}</li>'
+            for t in techs
+        )
 
     with gs_a1:
         st.markdown(f"""
-        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:1rem 1.25rem;">
-            <div style="font-size:0.78rem;font-weight:700;color:#6b7280;
-                        letter-spacing:0.05em;margin-bottom:0.5rem;">🗄️ SQL ({len(sql_techs)})</div>
-            <ul style="list-style:none;padding:0;margin:0;font-size:0.86rem;">
-                {_tech_list(sql_techs)}
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:1rem 1.25rem;">
+            <div style="font-size:0.68rem;font-weight:700;color:#94a3b8;letter-spacing:0.1em;
+                        text-transform:uppercase;margin-bottom:0.6rem;">🗄️ SQL ({len(sql_techs)})</div>
+            <ul style="list-style:none;padding:0;margin:0;line-height:1.7;">{_tech_list(sql_techs)}</ul>
+        </div>""", unsafe_allow_html=True)
 
     with gs_a2:
         st.markdown(f"""
-        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:1rem 1.25rem;">
-            <div style="font-size:0.78rem;font-weight:700;color:#6b7280;
-                        letter-spacing:0.05em;margin-bottom:0.5rem;">🔄 ETL ({len(etl_techs)})</div>
-            <ul style="list-style:none;padding:0;margin:0;font-size:0.86rem;">
-                {_tech_list(etl_techs)}
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:1rem 1.25rem;">
+            <div style="font-size:0.68rem;font-weight:700;color:#94a3b8;letter-spacing:0.1em;
+                        text-transform:uppercase;margin-bottom:0.6rem;">🔄 ETL ({len(etl_techs)})</div>
+            <ul style="list-style:none;padding:0;margin:0;line-height:1.7;">{_tech_list(etl_techs)}</ul>
+        </div>""", unsafe_allow_html=True)
 
     with gs_a3:
         st.markdown(f"""
-        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:1rem 1.25rem;">
-            <div style="font-size:0.78rem;font-weight:700;color:#6b7280;
-                        letter-spacing:0.05em;margin-bottom:0.5rem;">💻 Code ({len(code_techs)})</div>
-            <ul style="list-style:none;padding:0;margin:0;font-size:0.86rem;">
-                {_tech_list(code_techs)}
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:1rem 1.25rem;">
+            <div style="font-size:0.68rem;font-weight:700;color:#94a3b8;letter-spacing:0.1em;
+                        text-transform:uppercase;margin-bottom:0.6rem;">💻 Code ({len(code_techs)})</div>
+            <ul style="list-style:none;padding:0;margin:0;line-height:1.7;">{_tech_list(code_techs)}</ul>
+        </div>""", unsafe_allow_html=True)
 
     st.markdown("<div style='height:1.5rem'></div>", unsafe_allow_html=True)
 
     # ── PySpark / Serverless note ─────────────────────────────────────────────
     st.markdown(
-        '<div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;'
-        'padding:0.75rem 1rem;font-size:0.87rem;color:#1e40af;">'
-        '💡 <strong>PySpark & Spark Classic → Serverless migration</strong> is a separate accelerator. '
-        'Use the <strong>Syren Server to Serverless Migration Platform</strong>: '
+        '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;'
+        'padding:0.8rem 1.1rem;font-size:0.86rem;color:#475569;">'
+        '💡 <strong style="color:#0f172a;">PySpark &amp; Spark Classic → Serverless</strong> '
+        'migrations are handled by the Syren Server to Serverless Migration Platform — '
         '<a href="https://syren-s2s-platform-204242957656703.3.azure.databricksapps.com/#home" '
-        'target="_blank" style="color:#1d4ed8;font-weight:600;">Open platform →</a>'
+        'target="_blank" style="color:#2563eb;font-weight:600;">Open platform →</a>'
         '</div>',
         unsafe_allow_html=True,
     )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 2 — ANALYZER
+# PAGE — ANALYZER
 # ══════════════════════════════════════════════════════════════════════════════
 
-with tab_analyze:
+elif selected_page == "Analyzer":
 
     st.markdown("""
-    <div style="padding:0.75rem 0 1.25rem;color:#6b7280;font-size:0.93rem;max-width:680px;">
-        Upload your ETL / SQL source code, select the source technology, and get a detailed
-        <strong>migration-readiness Excel report</strong> — covering object inventory, function usage,
-        SQL categories, and more.
+    <div style="color:#475569;font-size:0.92rem;max-width:680px;margin-bottom:1.5rem;">
+        Upload your source code, select the technology, and receive a
+        <strong>migration-readiness report</strong> — covering object inventory, function usage,
+        SQL category breakdown, and complexity scoring.
     </div>
     """, unsafe_allow_html=True)
 
@@ -1358,15 +1334,15 @@ with tab_analyze:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 2 — TRANSPILER
+# PAGE — TRANSPILER
 # ══════════════════════════════════════════════════════════════════════════════
 
-with tab_transpile:
+elif selected_page == "Transpiler":
 
     st.markdown("""
-    <div style="padding:0.75rem 0 1.25rem;color:#6b7280;font-size:0.93rem;max-width:720px;">
-        Convert legacy SQL &amp; ETL code into <strong>PySpark or SparkSQL</strong> automatically.
-        Select your source dialect, upload your files, and download the fully transpiled output.
+    <div style="color:#475569;font-size:0.92rem;max-width:720px;margin-bottom:1.5rem;">
+        Convert legacy SQL, ETL, and workflow code into <strong>Databricks-compatible output</strong>.
+        Select your source dialect, upload files, and download the converted result.
     </div>
     """, unsafe_allow_html=True)
 
@@ -1781,48 +1757,62 @@ with tab_transpile:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 4 — SETTINGS
+# PAGE — SETTINGS
 # ══════════════════════════════════════════════════════════════════════════════
 
-with tab_settings:
+elif selected_page == "Settings":
 
     st.markdown("""
-    <div style="padding:0.5rem 0 1.25rem;max-width:680px;">
-        <h2 style="font-size:1.4rem;font-weight:800;color:#111827;margin-bottom:0.4rem;">
-            Databricks Connection Settings
-        </h2>
-        <p style="color:#6b7280;font-size:0.92rem;line-height:1.6;">
-            Configure credentials for the Databricks CLI and Lakebridge.
-            These are written to the subprocess environment for the current session only —
-            nothing is persisted to disk.
+    <div style="max-width:680px;margin-bottom:1.5rem;">
+        <p style="color:#475569;font-size:0.92rem;line-height:1.65;margin:0;">
+            SyrenBridge calls the Databricks CLI to run analysis and transpilation.
+            Credentials are held in session memory only — never written to disk or shared between users.
         </p>
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Deployment context note ───────────────────────────────────────────────
-    db_host_env = os.environ.get("DATABRICKS_HOST", "")
-    db_token_env = os.environ.get("DATABRICKS_TOKEN", "")
+    # ── Auto-detect context ───────────────────────────────────────────────────
+    db_host_env   = os.environ.get("DATABRICKS_HOST", "")
+    db_token_env  = os.environ.get("DATABRICKS_TOKEN", "")
+    db_cfg_exists = Path.home().joinpath(".databrickscfg").exists()
 
-    if db_host_env:
+    if db_host_env and db_token_env:
         st.markdown(
             f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;'
-            f'padding:0.7rem 1rem;margin-bottom:1.25rem;font-size:0.87rem;color:#065f46;">'
-            f'✅ <strong>Databricks workspace detected</strong> — <code>{db_host_env}</code> '
-            f'is already set via environment variable. '
-            f'The fields below will override it for this session if filled in.'
+            f'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#166534;">'
+            f'✅ <strong>Ready</strong> — workspace <code>{db_host_env}</code> and token are '
+            f'already present in the environment (Databricks Apps or pre-configured CLI). '
+            f'You do not need to fill anything in below. '
+            f'Use the fields only if you want to override for this session.'
             f'</div>',
+            unsafe_allow_html=True,
+        )
+    elif db_host_env:
+        st.markdown(
+            f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;'
+            f'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#92400e;">'
+            f'⚠️ <strong>Workspace URL detected</strong> (<code>{db_host_env}</code>) but no token '
+            f'found in environment. If you have a configured CLI profile (<code>~/.databrickscfg</code>) '
+            f'it will be used automatically. Otherwise enter a token below.'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    elif db_cfg_exists:
+        st.markdown(
+            '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;'
+            'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#166534;">'
+            '✅ <strong>Databricks CLI profile found</strong> (<code>~/.databrickscfg</code>). '
+            'The CLI will use it automatically — no input needed unless you want a different workspace.'
+            '</div>',
             unsafe_allow_html=True,
         )
     else:
         st.markdown(
-            '<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;'
-            'padding:0.7rem 1rem;margin-bottom:1.25rem;font-size:0.87rem;color:#92400e;">'
-            '⚠️ <strong>No Databricks workspace detected</strong> in environment. '
-            'Fill in the fields below, or configure a profile with '
-            '<code>databricks configure --profile &lt;name&gt;</code> before launching the app. '
-            '<br><br>'
-            '<strong>On Databricks Apps:</strong> credentials are injected automatically — '
-            'you do not need to fill anything in here.'
+            '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;'
+            'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#991b1b;">'
+            '⚠️ <strong>No credentials detected.</strong> Enter your Databricks workspace URL and '
+            'Personal Access Token below. The Analyzer and Transpiler require a connected workspace.<br><br>'
+            '<strong>On Databricks Apps:</strong> this is handled automatically — no input needed.'
             '</div>',
             unsafe_allow_html=True,
         )
