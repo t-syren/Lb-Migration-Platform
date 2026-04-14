@@ -1,3 +1,4 @@
+"""Shared pytest fixtures for SyrenBridge test suite (session-scoped SparkSession)."""
 import pytest
 from pyspark.sql import SparkSession
 
