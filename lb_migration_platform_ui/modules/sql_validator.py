@@ -36,7 +36,6 @@ def validate_transpilation(
     # Execute original SQL
     try:
         orig_df = spark.sql(original_sql)
-        orig_df.cache()
         result.original_count = orig_df.count()
         result.original_columns = orig_df.columns
     except Exception as exc:
@@ -47,7 +46,6 @@ def validate_transpilation(
     # Execute transpiled SQL
     try:
         trans_df = spark.sql(transpiled_sql)
-        trans_df.cache()
         result.transpiled_count = trans_df.count()
         result.transpiled_columns = trans_df.columns
     except Exception as exc:
@@ -75,10 +73,12 @@ def validate_transpilation(
             lines.append(f"  Columns only in transpiled: {sorted(only_trans)}")
 
     # Sample data diff (first 5 rows, only when schema matches)
+    data_match = True
     if result.schema_match and result.row_count_match:
         orig_rows = [str(r.asDict()) for r in orig_df.limit(5).collect()]
         trans_rows = [str(r.asDict()) for r in trans_df.limit(5).collect()]
         if orig_rows != trans_rows:
+            data_match = False
             lines.append("Sample data differs:")
             for i, (o, t) in enumerate(zip(orig_rows, trans_rows)):
                 if o != t:
@@ -86,5 +86,5 @@ def validate_transpilation(
                     lines.append(f"          transpiled={t}")
 
     result.diff_report = "\n".join(lines)
-    result.passed = result.schema_match and result.row_count_match and result.error is None
+    result.passed = result.schema_match and result.row_count_match and data_match and result.error is None
     return result

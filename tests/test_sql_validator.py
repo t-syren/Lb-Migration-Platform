@@ -53,3 +53,9 @@ class TestValidateTranspilation:
         result = validate_transpilation(spark, "SELECT * FROM val_tbl6", "SELECT * FROM val_tbl6")
         assert "id" in result.original_columns
         assert "name" in result.original_columns
+
+    def test_invalid_original_sql_returns_error(self, spark):
+        result = validate_transpilation(spark, "THIS IS INVALID SQL !!!", "SELECT 1")
+        assert result.passed is False
+        assert result.error is not None
+        assert "Original SQL" in result.error
