@@ -1,6 +1,8 @@
 """Dummy dataset generation for SQL transpilation testing."""
+import logging
 import random
 from datetime import date, timedelta
+from decimal import Decimal as PyDecimal
 from typing import Any, Dict, List
 
 from faker import Faker
@@ -22,6 +24,8 @@ from pyspark.sql.types import (
     ByteType,
 )
 
+logger = logging.getLogger(__name__)
+
 _faker = Faker()
 Faker.seed(42)
 random.seed(42)
@@ -33,7 +37,7 @@ _TYPE_GENERATORS = {
     "TINYINT": lambda: random.randint(0, 127),
     "FLOAT": lambda: round(random.uniform(0.0, 10_000.0), 4),
     "DOUBLE": lambda: round(random.uniform(0.0, 100_000.0), 6),
-    "DECIMAL": lambda: round(random.uniform(0.0, 99_999.99), 2),
+    "DECIMAL": lambda: PyDecimal(str(round(random.uniform(0.0, 99_999.99), 2))),
     "STRING": lambda: _faker.word(),
     "VARCHAR": lambda: _faker.word(),
     "CHAR": lambda: _faker.lexify("?"),
@@ -52,7 +56,7 @@ _HIVE_TO_SPARK_TYPE = {
     "TINYINT": ByteType(),
     "FLOAT": FloatType(),
     "DOUBLE": DoubleType(),
-    "DECIMAL": DoubleType(),
+    "DECIMAL": DecimalType(18, 2),
     "STRING": StringType(),
     "VARCHAR": StringType(),
     "CHAR": StringType(),
@@ -65,7 +69,11 @@ _HIVE_TO_SPARK_TYPE = {
 
 def _gen_value(hive_type: str) -> Any:
     base_type = hive_type.split("(")[0].upper()  # strip DECIMAL(10,2) -> DECIMAL
-    return _TYPE_GENERATORS.get(base_type, _DEFAULT_GEN)()
+    gen = _TYPE_GENERATORS.get(base_type)
+    if gen is None:
+        logger.warning("Unknown Hive type '%s', falling back to STRING", hive_type)
+        return _DEFAULT_GEN()
+    return gen()
 
 
 def _build_spark_schema(schema: Dict[str, str]) -> StructType:

@@ -52,6 +52,16 @@ class TestGenerateRows:
         assert isinstance(rows, list)
         assert all(isinstance(r, dict) for r in rows)
 
+    def test_float_column_is_float(self):
+        schema = {"score": "FLOAT"}
+        rows = generate_rows(schema, n=5)
+        assert all(isinstance(r["score"], float) for r in rows)
+
+    def test_varchar_column_is_str(self):
+        schema = {"code": "VARCHAR"}
+        rows = generate_rows(schema, n=5)
+        assert all(isinstance(r["code"], str) for r in rows)
+
 
 class TestRegisterTempTables:
     def test_table_registered(self, spark):
