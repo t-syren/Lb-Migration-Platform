@@ -156,34 +156,52 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 #MainMenu, footer, header { visibility: hidden; }
 .block-container { padding-top: 1.75rem; padding-bottom: 3rem; max-width: 1100px; }
 
-/* ── Sidebar ─────────────────────────────────────────────────────────────── */
-[data-testid="stSidebar"] {
-    background: #0f172a !important;
+/* ── Sidebar — fixed, non-collapsible ────────────────────────────────────── */
+/* Background applied at every level so no white bleeds through */
+section[data-testid="stSidebar"],
+section[data-testid="stSidebar"] > div,
+section[data-testid="stSidebar"] > div > div,
+section[data-testid="stSidebar"] > div > div > div {
+    background-color: #0f172a !important;
+}
+section[data-testid="stSidebar"] {
     border-right: 1px solid #1e293b !important;
-    min-width: 210px !important;
-    max-width: 230px !important;
 }
-[data-testid="stSidebar"] p,
-[data-testid="stSidebar"] span,
-[data-testid="stSidebar"] div { color: #94a3b8; }
-[data-testid="stSidebar"] hr { border-color: #1e293b !important; }
-[data-testid="stSidebar"] .stRadio > label { display: none; }
-[data-testid="stSidebar"] .stRadio > div {
-    display: flex; flex-direction: column; gap: 2px;
+
+/* Hide both the collapse button (inside sidebar) and the expand arrow (when collapsed) */
+[data-testid="stSidebarCollapseButton"],
+[data-testid="collapsedControl"] {
+    display: none !important;
+    visibility: hidden !important;
 }
-[data-testid="stSidebar"] .stRadio label {
-    display: flex !important; align-items: center;
+
+/* Sidebar text colours */
+section[data-testid="stSidebar"] p,
+section[data-testid="stSidebar"] span,
+section[data-testid="stSidebar"] div,
+section[data-testid="stSidebar"] label { color: #94a3b8 !important; }
+section[data-testid="stSidebar"] hr { border-color: #1e293b !important; }
+
+/* Hide the auto-generated radio group label */
+section[data-testid="stSidebar"] .stRadio > label { display: none !important; }
+
+/* Nav items */
+section[data-testid="stSidebar"] .stRadio > div {
+    display: flex !important; flex-direction: column !important; gap: 2px !important;
+}
+section[data-testid="stSidebar"] .stRadio label {
+    display: flex !important; align-items: center !important;
     padding: 0.55rem 0.85rem !important; border-radius: 7px !important;
     font-size: 0.88rem !important; font-weight: 500 !important;
-    color: #94a3b8 !important; cursor: pointer;
+    color: #94a3b8 !important; cursor: pointer !important;
     transition: background 0.12s, color 0.12s;
 }
-[data-testid="stSidebar"] .stRadio label:hover {
+section[data-testid="stSidebar"] .stRadio label:hover {
     background: #1e293b !important; color: #e2e8f0 !important;
 }
-[data-testid="stSidebar"] .stRadio label[data-checked="true"],
-[data-testid="stSidebar"] .stRadio input:checked + label {
-    background: #1e3a5f !important; color: #93c5fd !important; font-weight: 600 !important;
+section[data-testid="stSidebar"] .stRadio label[data-checked="true"] {
+    background: #1e3a5f !important; color: #93c5fd !important;
+    font-weight: 600 !important;
 }
 
 /* ── Page header ─────────────────────────────────────────────────────────── */
@@ -252,28 +270,6 @@ div[data-testid="stButton"] button:disabled {
     box-shadow: none !important; transform: none !important;
 }
 
-/* ── Sidebar collapse / expand toggle ───────────────────────────────────── */
-/* The expand arrow shown when sidebar is collapsed must always be visible */
-[data-testid="collapsedControl"] {
-    display: flex !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    background: #0f172a !important;
-    border-radius: 0 8px 8px 0 !important;
-    box-shadow: 2px 0 8px rgba(15,23,42,0.25) !important;
-}
-[data-testid="collapsedControl"] button,
-[data-testid="collapsedControl"] span {
-    background: transparent !important;
-    box-shadow: none !important;
-    transform: none !important;
-    color: #94a3b8 !important;
-    padding: 0 !important;
-}
-[data-testid="collapsedControl"] svg {
-    fill: #94a3b8 !important;
-    stroke: #94a3b8 !important;
-}
 
 /* ── Metric cards ────────────────────────────────────────────────────────── */
 .metric-card {
