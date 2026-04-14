@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 # Hive-specific clauses that have no Spark SQL equivalent
 _STRIP_PATTERNS = [
-    r"ROW\s+FORMAT\s+DELIMITED(?:\s+FIELDS\s+TERMINATED\s+BY\s+'[^']*')?(?:\s+LINES\s+TERMINATED\s+BY\s+'[^']*')?",
+    r"ROW\s+FORMAT\s+(?:DELIMITED(?:\s+FIELDS\s+TERMINATED\s+BY\s+'[^']*')?(?:\s+LINES\s+TERMINATED\s+BY\s+'[^']*')?|SERDE\s+'[^']*'(?:\s+WITH\s+SERDEPROPERTIES\s*\([^)]*\))?)",
     r"STORED\s+AS\s+(?:TEXTFILE|ORC|PARQUET|AVRO|SEQUENCEFILE|RCFILE)",
     r"TBLPROPERTIES\s*\([^)]*\)",
     r"LOCATION\s+'hdfs://[^']*'",

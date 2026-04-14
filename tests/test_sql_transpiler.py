@@ -20,7 +20,7 @@ class TestTranspileHiveSQL:
         result = transpile_hive_sql(sql)
         assert "PARTITIONED BY" in result
 
-    def test_insert_overwrite_present(self):
+    def test_insert_statement_not_stripped(self):
         sql = "INSERT OVERWRITE TABLE t SELECT id FROM src"
         result = transpile_hive_sql(sql)
         assert "INSERT" in result
@@ -43,6 +43,21 @@ class TestTranspileHiveSQL:
         sql = "CREATE TABLE t (id INT) STORED AS ORC"
         result = transpile_hive_sql(sql)
         assert "STORED AS ORC" not in result
+
+    def test_tblproperties_removed(self):
+        sql = "CREATE TABLE t (id INT) TBLPROPERTIES ('transactional'='true')"
+        result = transpile_hive_sql(sql)
+        assert "TBLPROPERTIES" not in result
+
+    def test_hdfs_location_removed(self):
+        sql = "CREATE TABLE t (id INT) LOCATION 'hdfs://namenode:8020/warehouse/t'"
+        result = transpile_hive_sql(sql)
+        assert "hdfs://" not in result
+
+    def test_row_format_serde_removed(self):
+        sql = "CREATE TABLE t (id INT) ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe'"
+        result = transpile_hive_sql(sql)
+        assert "ROW FORMAT" not in result
 
 
 class TestInferSchema:
