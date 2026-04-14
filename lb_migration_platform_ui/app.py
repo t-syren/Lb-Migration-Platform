@@ -22,18 +22,7 @@ import streamlit as st
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from modules.sql_transpiler import transpile_hive_sql, infer_schema
-from modules.dummy_data import register_temp_tables
-from modules.sql_validator import validate_transpilation
 from modules.oozie_converter import workflow_to_json, parse_workflow
-from modules.pyspark_migrator import migrate_pyspark_script, migrate_notebook
-from modules.hdfs_migrator import (
-    parse_hdfs_listing,
-    generate_fs_cp_script,
-    generate_dbutils_script,
-    generate_unity_catalog_script,
-    rewrite_sql_locations,
-)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DATA — ANALYZER
@@ -134,6 +123,7 @@ TRANSPILER_DIALECTS: dict[str, dict] = {
     "Snowflake":           {"cli": "snowflake",          "exts": ["sql", "ddl", "dml"]},
     "Synapse":             {"cli": "synapse",            "exts": ["sql", "ddl", "dml", "json"]},
     "Teradata":            {"cli": "teradata",           "exts": ["sql", "bteq", "tdl", "tpt", "ddl", "dml"]},
+    "Oozie (Workflow)":    {"cli": "oozie",              "exts": ["xml"],                               "oozie": True},
 }
 
 TRANSPILER_TARGETS = {
@@ -612,7 +602,7 @@ def run_hive_transpiler(
             converted_stmts = sqlglot.transpile(
                 content,
                 read="hive",
-                write="spark",
+                write="databricks",
                 pretty=True,
                 error_level=sqlglot.ErrorLevel.WARN,
             )
@@ -687,8 +677,57 @@ def run_hive_transpiler(
         Path(err_file).write_text("\n".join(errors), encoding="utf-8")
 
     stdout = (
-        f"HiveSQL transpiler (sqlglot): {processed} file(s) processed, "
+        f"HiveSQL transpiler (sqlglot → Databricks SQL): {processed} file(s) processed, "
         f"{generated} file(s) generated."
+        + (f"  {len(errors)} error(s) — see log." if errors else "")
+    )
+    stderr = "\n".join(errors) if (errors and generated == 0) else ""
+    return generated > 0, stdout, stderr
+
+
+def run_oozie_converter(
+    src_dir: str,
+    out_dir: str,
+    err_file: str,
+) -> tuple[bool, str, str]:
+    """
+    Convert Oozie workflow.xml files to Databricks Jobs API 2.1 JSON.
+    Each .xml file in src_dir is parsed and written as a matching .json in out_dir.
+    """
+    src_root = Path(src_dir)
+    out_root = Path(out_dir)
+
+    errors: list[str] = []
+    processed = 0
+    generated = 0
+
+    for src_file in sorted(src_root.rglob("*.xml")):
+        if not src_file.is_file():
+            continue
+        processed += 1
+        rel_path = src_file.relative_to(src_root)
+        try:
+            xml_str = src_file.read_text(encoding="utf-8", errors="replace")
+            job_name = src_file.stem  # filename without extension as job name
+            job_json = workflow_to_json(xml_str, job_name=job_name)
+        except Exception as exc:
+            errors.append(f"{rel_path}: conversion error — {exc}")
+            continue
+
+        out_file = out_root / rel_path.with_suffix(".json")
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            out_file.write_text(job_json, encoding="utf-8")
+            generated += 1
+        except Exception as exc:
+            errors.append(f"{rel_path}: could not write output — {exc}")
+
+    if errors:
+        Path(err_file).write_text("\n".join(errors), encoding="utf-8")
+
+    stdout = (
+        f"Oozie converter: {processed} workflow(s) processed, "
+        f"{generated} Databricks Workflow JSON file(s) generated."
         + (f"  {len(errors)} error(s) — see log." if errors else "")
     )
     stderr = "\n".join(errors) if (errors and generated == 0) else ""
@@ -743,13 +782,9 @@ st.markdown("""
 # MAIN TABS
 # ══════════════════════════════════════════════════════════════════════════════
 
-tab_analyze, tab_transpile, tab3, tab4, tab5, tab6 = st.tabs([
+tab_analyze, tab_transpile = st.tabs([
     "🔍  Analyzer",
     "⚡  Transpiler",
-    "🧪 Hive SQL Testing",
-    "🔁 Oozie Migration",
-    "🐍 PySpark Migration",
-    "📦 HDFS Migration",
 ])
 
 
@@ -1098,6 +1133,18 @@ with tab_transpile:
     </div>
     """, unsafe_allow_html=True)
 
+    # ── PySpark / Serverless note ─────────────────────────────────────────────
+    st.markdown(
+        '<div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;'
+        'padding:0.65rem 1rem;margin-bottom:1rem;font-size:0.83rem;color:#1e40af;">'
+        '💡 <strong>PySpark & Spark Classic → Serverless migration</strong> is available through '
+        'the Databricks Migrations Accelerator. '
+        '<a href="https://www.databricks.com/resources/demos/tutorials/governance/serverless-migration" '
+        'target="_blank" style="color:#1d4ed8;font-weight:600;">Learn more →</a>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
     # ── CONFIG COLUMNS ────────────────────────────────────────────────────────
     tp_left, tp_right = st.columns([1, 1], gap="large")
 
@@ -1120,12 +1167,20 @@ with tab_transpile:
         dialect_exts  = dialect_info["exts"]
 
         dial_tags_sel = "".join(f'<span class="ext-tag teal">.{e}</span>' for e in dialect_exts)
-        _engine_badge = (
-            '<span style="font-size:0.72rem;background:#fef3c7;color:#92400e;'
-            'border:1px solid #fcd34d;border-radius:6px;padding:2px 7px;font-weight:600;">'
-            '⚙️ Built-in engine (sqlglot) — no Databricks CLI needed</span>'
-            if dialect_info.get("custom") else ""
-        )
+        if dialect_info.get("oozie"):
+            _engine_badge = (
+                '<span style="font-size:0.72rem;background:#fef3c7;color:#92400e;'
+                'border:1px solid #fcd34d;border-radius:6px;padding:2px 7px;font-weight:600;">'
+                '🔁 Built-in engine (oozie_converter) — outputs Databricks Workflow JSON</span>'
+            )
+        elif dialect_info.get("custom"):
+            _engine_badge = (
+                '<span style="font-size:0.72rem;background:#fef3c7;color:#92400e;'
+                'border:1px solid #fcd34d;border-radius:6px;padding:2px 7px;font-weight:600;">'
+                '⚙️ Built-in engine (sqlglot) — no Databricks CLI needed</span>'
+            )
+        else:
+            _engine_badge = ""
         st.markdown(f"""
         <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;
                     padding:0.85rem 1.25rem;margin-top:0.5rem;margin-bottom:1rem;">
@@ -1137,36 +1192,49 @@ with tab_transpile:
         </div>
         """, unsafe_allow_html=True)
 
-        selected_target_label = st.selectbox(
-            "Target technology",
-            options=list(TRANSPILER_TARGETS.keys()),
-            key="tp_target",
-            label_visibility="collapsed",
-        )
-        target_cli = TRANSPILER_TARGETS[selected_target_label]
+        if dialect_info.get("oozie"):
+            # Oozie always outputs Databricks Workflow JSON — no target selector needed
+            target_cli = "OOZIE_WORKFLOW"
+            selected_target_label = "Databricks Workflow JSON"
+            st.markdown(
+                '<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;'
+                'padding:0.6rem 1rem;font-size:0.82rem;color:#065f46;font-weight:500;">'
+                '📋 Output: <strong>Databricks Workflow JSON</strong> — deployable via '
+                '<code>/api/2.1/jobs</code></div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            selected_target_label = st.selectbox(
+                "Target technology",
+                options=list(TRANSPILER_TARGETS.keys()),
+                key="tp_target",
+                label_visibility="collapsed",
+            )
+            target_cli = TRANSPILER_TARGETS[selected_target_label]
 
-        # Optional settings
-        with st.expander("⚙️ Advanced options", expanded=False):
-            catalog_name = st.text_input(
-                "Catalog name (optional)",
-                value="",
-                key="tp_catalog",
-                placeholder="e.g. main",
-                help="Unity Catalog catalog name to use in generated code.",
-            )
-            schema_name = st.text_input(
-                "Schema / database name (optional)",
-                value="",
-                key="tp_schema",
-                placeholder="e.g. default",
-                help="Target schema name to prefix output objects.",
-            )
-            skip_val = st.toggle(
-                "Skip validation",
-                value=True,
-                key="tp_skip_val",
-                help="Pass --skip-validation true to bypass pre-flight checks (recommended for large migrations).",
-            )
+        # Optional settings (not applicable for Oozie)
+        if not dialect_info.get("oozie"):
+            with st.expander("⚙️ Advanced options", expanded=False):
+                catalog_name = st.text_input(
+                    "Catalog name (optional)",
+                    value="",
+                    key="tp_catalog",
+                    placeholder="e.g. main",
+                    help="Unity Catalog catalog name to use in generated code.",
+                )
+                schema_name = st.text_input(
+                    "Schema / database name (optional)",
+                    value="",
+                    key="tp_schema",
+                    placeholder="e.g. default",
+                    help="Target schema name to prefix output objects.",
+                )
+                skip_val = st.toggle(
+                    "Skip validation",
+                    value=True,
+                    key="tp_skip_val",
+                    help="Pass --skip-validation true to bypass pre-flight checks (recommended for large migrations).",
+                )
 
     with tp_right:
         # Step 2 — Files
@@ -1269,8 +1337,15 @@ with tab_transpile:
 
                 st.write(f"⚡ Transpiling **{selected_dialect_name}** → **{selected_target_label.split('(')[0].strip()}**…")
                 t0 = time.time()
-                if dialect_info.get("custom"):
-                    # Custom in-process transpiler (e.g. HiveSQL via sqlglot)
+                if dialect_info.get("oozie"):
+                    # Built-in Oozie → Databricks Workflow JSON converter
+                    tp_ok, tp_stdout, tp_stderr = run_oozie_converter(
+                        src_dir=tp_src_dir,
+                        out_dir=tp_out_dir,
+                        err_file=tp_err_file,
+                    )
+                elif dialect_info.get("custom"):
+                    # Custom in-process transpiler (HiveSQL via sqlglot → Databricks SQL)
                     tp_ok, tp_stdout, tp_stderr = run_hive_transpiler(
                         src_dir=tp_src_dir,
                         out_dir=tp_out_dir,
@@ -1420,227 +1495,3 @@ with tab_transpile:
             # In production, a cleanup hook or time-based cleanup is recommended.git
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 3 — HIVE SQL TESTING
-# ══════════════════════════════════════════════════════════════════════════════
-
-with tab3:
-    st.markdown("## 🧪 Hive → Databricks SQL Testing")
-    st.caption("Upload a Hive SQL file, inspect the transpiled Spark SQL, and optionally validate with local PySpark.")
-
-    uploaded_hql = st.file_uploader(
-        "Upload Hive SQL (.hql or .sql)",
-        type=["hql", "sql"],
-        key="hql_testing_upload",
-    )
-
-    if uploaded_hql:
-        original_sql = uploaded_hql.read().decode("utf-8")
-        transpiled = transpile_hive_sql(original_sql)
-
-        col_orig, col_trans = st.columns(2)
-        with col_orig:
-            st.subheader("Original Hive SQL")
-            st.code(original_sql, language="sql")
-        with col_trans:
-            st.subheader("Transpiled Spark SQL")
-            st.code(transpiled, language="sql")
-
-        st.download_button(
-            "⬇️ Download Transpiled SQL",
-            data=transpiled,
-            file_name="transpiled.sql",
-            mime="text/plain",
-            key="hql_download",
-        )
-
-        if st.button("▶️ Run PySpark Validation", key="run_hql_validation"):
-            with st.spinner("Starting local Spark session…"):
-                try:
-                    import re as _re
-                    from pyspark.sql import SparkSession
-                    _spark = (
-                        SparkSession.builder
-                        .master("local[1]")
-                        .appName("SyrenValidation")
-                        .config("spark.ui.enabled", "false")
-                        .config("spark.sql.shuffle.partitions", "1")
-                        .getOrCreate()
-                    )
-                    schema = infer_schema(original_sql)
-                    tbl_match = _re.search(
-                        r"CREATE\s+(?:EXTERNAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:\w+\.)?(\w+)",
-                        original_sql, _re.IGNORECASE,
-                    )
-                    tbl_name = tbl_match.group(1) if tbl_match else "test_table"
-                    if schema:
-                        register_temp_tables(_spark, {tbl_name: schema}, n=50)
-                    sel_orig = _re.search(r"(SELECT\b[^;]+)", original_sql, _re.IGNORECASE | _re.DOTALL)
-                    sel_trans = _re.search(r"(SELECT\b[^;]+)", transpiled, _re.IGNORECASE | _re.DOTALL)
-                    if sel_orig and sel_trans:
-                        vr = validate_transpilation(_spark, sel_orig.group(1), sel_trans.group(1))
-                        if vr.passed:
-                            st.success("✅ Validation PASSED")
-                        else:
-                            st.error("❌ Validation FAILED")
-                        st.text(vr.diff_report)
-                        if vr.error:
-                            st.warning(f"Error: {vr.error}")
-                    else:
-                        st.info("No SELECT statement found — DDL-only file, skipping execution test.")
-                except Exception as exc:
-                    st.error(f"Validation error: {exc}")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 4 — OOZIE MIGRATION
-# ══════════════════════════════════════════════════════════════════════════════
-
-with tab4:
-    st.markdown("## 🔁 Oozie → Databricks Workflows")
-    st.caption("Upload an Oozie workflow.xml to parse the DAG and generate a Databricks Jobs API payload.")
-
-    uploaded_xml = st.file_uploader(
-        "Upload workflow.xml",
-        type=["xml"],
-        key="oozie_xml_upload",
-    )
-
-    if uploaded_xml:
-        xml_str = uploaded_xml.read().decode("utf-8")
-        try:
-            actions = parse_workflow(xml_str)
-            st.subheader(f"Parsed DAG — {len(actions)} actions")
-            for a in actions:
-                st.markdown(f"- **`{a.name}`** `({a.action_type})` → ok: `{a.ok_to}` | error: `{a.error_to}`")
-
-            job_name = st.text_input(
-                "Databricks Job Name",
-                value=uploaded_xml.name.replace(".xml", ""),
-                key="oozie_job_name",
-            )
-
-            if st.button("⚙️ Generate Databricks Workflow JSON", key="gen_oozie_json"):
-                job_json = workflow_to_json(xml_str, job_name=job_name)
-                st.subheader("Generated Job JSON")
-                st.code(job_json, language="json")
-                st.download_button(
-                    "⬇️ Download job.json",
-                    data=job_json,
-                    file_name=f"{job_name}.json",
-                    mime="application/json",
-                    key="oozie_download",
-                )
-        except Exception as exc:
-            st.error(f"XML parsing error: {exc}")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 5 — PYSPARK MIGRATION
-# ══════════════════════════════════════════════════════════════════════════════
-
-with tab5:
-    st.markdown("## 🐍 PySpark Migration")
-    st.caption("Migrate PySpark scripts: rewrite HDFS paths, flag deprecated APIs, and surface Databricks best-practice suggestions.")
-
-    uploaded_py = st.file_uploader(
-        "Upload .py or .ipynb",
-        type=["py", "ipynb"],
-        key="pyspark_migration_upload",
-    )
-
-    if uploaded_py:
-        raw = uploaded_py.read().decode("utf-8")
-        is_nb = uploaded_py.name.endswith(".ipynb")
-
-        result = migrate_notebook(raw) if is_nb else migrate_pyspark_script(raw)
-
-        col_o, col_t = st.columns(2)
-        with col_o:
-            st.subheader("Original")
-            st.code(raw, language="python")
-        with col_t:
-            st.subheader("Migrated")
-            st.code(result.transformed_code, language="python")
-
-        if result.warnings:
-            st.subheader("⚠️ Warnings & Suggestions")
-            for w in result.warnings:
-                st.warning(w)
-        else:
-            st.success("✅ No issues detected.")
-
-        st.download_button(
-            "⬇️ Download Migrated Script",
-            data=result.transformed_code,
-            file_name=f"migrated_{uploaded_py.name}",
-            mime="text/plain",
-            key="pyspark_download",
-        )
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 6 — HDFS MIGRATION
-# ══════════════════════════════════════════════════════════════════════════════
-
-with tab6:
-    st.markdown("## 📦 HDFS Path Migration")
-    st.caption("Generate migration scripts from an HDFS directory listing (`hdfs dfs -ls -R /` output).")
-
-    col_input, col_opts = st.columns([2, 1])
-    with col_input:
-        hdfs_text_input = st.text_area(
-            "Paste `hdfs dfs -ls -R /` output",
-            height=200,
-            key="hdfs_paste_input",
-            placeholder="drwxr-xr-x   - hadoop supergroup ...",
-        )
-    with col_opts:
-        uploaded_listing = st.file_uploader("Or upload listing .txt", type=["txt"], key="hdfs_file_upload")
-        hdfs_host = st.text_input("HDFS host", value="hdfs://namenode:8020", key="hdfs_host_input")
-        script_type = st.selectbox(
-            "Script type",
-            ["CLI: databricks fs cp", "Python: dbutils.fs.cp", "SQL: Unity Catalog CREATE VOLUME"],
-            key="hdfs_script_type",
-        )
-
-    listing_text = ""
-    if uploaded_listing:
-        listing_text = uploaded_listing.read().decode("utf-8")
-    elif hdfs_text_input.strip():
-        listing_text = hdfs_text_input
-
-    if listing_text:
-        entries = parse_hdfs_listing(listing_text)
-        n_files = sum(1 for e in entries if e.entry_type == "file")
-        n_dirs = sum(1 for e in entries if e.entry_type == "dir")
-        st.info(f"Parsed {n_files} files and {n_dirs} directories.")
-
-        if script_type.startswith("CLI"):
-            script = generate_fs_cp_script(entries, hdfs_host=hdfs_host)
-            ext, lang, mime = ".sh", "bash", "text/x-sh"
-        elif script_type.startswith("Python"):
-            script = generate_dbutils_script(entries, hdfs_host=hdfs_host)
-            ext, lang, mime = ".py", "python", "text/plain"
-        else:
-            script = generate_unity_catalog_script(entries)
-            ext, lang, mime = ".sql", "sql", "text/plain"
-
-        st.subheader("Migration Script")
-        st.code(script, language=lang)
-        st.download_button("⬇️ Download Script", data=script, file_name=f"hdfs_migration{ext}", mime=mime, key="hdfs_script_download")
-
-        st.divider()
-        st.subheader("SQL LOCATION Rewrite")
-        sql_ddl = st.text_area("Paste CREATE TABLE SQL with LOCATION clauses", height=100, key="hdfs_sql_input")
-        loc_target = st.radio("Target path type", ["dbfs", "abfss"], horizontal=True, key="hdfs_loc_target")
-        if sql_ddl.strip() and st.button("Rewrite LOCATION Paths", key="hdfs_rewrite_btn"):
-            rewritten = rewrite_sql_locations(sql_ddl, target=loc_target)
-            st.code(rewritten, language="sql")
-            st.download_button(
-                "⬇️ Download Rewritten SQL",
-                data=rewritten,
-                file_name="rewritten_locations.sql",
-                mime="text/plain",
-                key="hdfs_rewrite_download",
-            )
