@@ -73,11 +73,11 @@ def parse_workflow(xml_str: str) -> List[OozieAction]:
     return actions
 
 
-def _action_to_task(action: OozieAction, predecessor: Optional[str]) -> Dict[str, Any]:
+def _action_to_task(action: OozieAction, predecessors: List[str]) -> Dict[str, Any]:
     """Convert one OozieAction to a Databricks task dict."""
     task: Dict[str, Any] = {
         "task_key": action.name,
-        "depends_on": [{"task_key": predecessor}] if predecessor else [],
+        "depends_on": [{"task_key": p} for p in predecessors],
         "max_retries": 1,
         "min_retry_interval_millis": 60_000,
     }
@@ -115,16 +115,16 @@ def _action_to_task(action: OozieAction, predecessor: Optional[str]) -> Dict[str
 
 def to_databricks_job(actions: List[OozieAction], job_name: str = "migrated-workflow") -> Dict[str, Any]:
     """Convert a list of OozieActions to a Databricks Jobs API 2.1 payload."""
-    # Build predecessor map from ok_to edges
-    successor_to_predecessor: Dict[str, str] = {}
+    # Build predecessor map from ok_to edges (supports fan-in: multiple predecessors)
+    successor_to_predecessors: Dict[str, List[str]] = {}
     for action in actions:
         if action.ok_to:
-            successor_to_predecessor[action.ok_to] = action.name
+            successor_to_predecessors.setdefault(action.ok_to, []).append(action.name)
 
     tasks = []
     for action in actions:
-        predecessor = successor_to_predecessor.get(action.name)
-        tasks.append(_action_to_task(action, predecessor))
+        predecessors = successor_to_predecessors.get(action.name, [])
+        tasks.append(_action_to_task(action, predecessors))
 
     return {
         "name": job_name,

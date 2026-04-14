@@ -1,5 +1,7 @@
 """Tests for oozie_converter module."""
 import json
+from pathlib import Path
+
 import pytest
 from lb_migration_platform_ui.modules.oozie_converter import (
     parse_workflow,
@@ -8,9 +10,8 @@ from lb_migration_platform_ui.modules.oozie_converter import (
     OozieAction,
 )
 
-WORKFLOW_XML = open(
-    "files/sample_oozie/workflow.xml", encoding="utf-8"
-).read()
+_REPO_ROOT = Path(__file__).parent.parent  # Lb-Migration-Platform/
+WORKFLOW_XML = (_REPO_ROOT / "files" / "sample_oozie" / "workflow.xml").read_text(encoding="utf-8")
 
 
 class TestParseWorkflow:
