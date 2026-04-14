@@ -95,6 +95,9 @@ def generate_unity_catalog_script(
     dirs_seen: set = set()
     for entry in entries:
         parent = "/".join(entry.path.rsplit("/", 1)[:1])
+        if not parent:
+            logger.debug("Skipping top-level path with no parent dir: %s", entry.path)
+            continue
         if parent and parent not in dirs_seen:
             volume_name = parent.strip("/").replace("/", "_")
             lines.append(f"CREATE VOLUME IF NOT EXISTS {catalog}.{schema}.{volume_name}")
