@@ -341,6 +341,32 @@ def zip_directory(directory: str) -> bytes:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# CREDENTIALS HELPER
+# ══════════════════════════════════════════════════════════════════════════════
+
+def get_env() -> dict:
+    """Return os.environ with any user-supplied Databricks credentials injected.
+
+    Values come from st.session_state keys set by the Settings tab:
+      - sb_db_host   → DATABRICKS_HOST
+      - sb_db_token  → DATABRICKS_TOKEN
+      - sb_db_profile → DATABRICKS_CONFIG_PROFILE
+    If the keys are empty or absent the existing environment values are used.
+    """
+    env = os.environ.copy()
+    host = st.session_state.get("sb_db_host", "").strip()
+    token = st.session_state.get("sb_db_token", "").strip()
+    profile = st.session_state.get("sb_db_profile", "").strip()
+    if host:
+        env["DATABRICKS_HOST"] = host
+    if token:
+        env["DATABRICKS_TOKEN"] = token
+    if profile:
+        env["DATABRICKS_CONFIG_PROFILE"] = profile
+    return env
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # HELPERS — ANALYZER
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -350,7 +376,7 @@ def run_lakebridge(src: str, out: str, tech: int) -> tuple[bool, str, str]:
         proc = subprocess.run(
             ["databricks", "labs", "lakebridge", "analyze"],
             input=payload, capture_output=True, text=True,
-            timeout=600, env=os.environ.copy(),
+            timeout=600, env=get_env(),
         )
         return proc.returncode == 0 or os.path.exists(out), proc.stdout, proc.stderr
     except subprocess.TimeoutExpired:
@@ -538,7 +564,7 @@ def run_transpiler(
         proc = subprocess.run(
             cmd,
             capture_output=True, text=True,
-            timeout=600, env=os.environ.copy(),
+            timeout=600, env=get_env(),
         )
         ok = proc.returncode == 0 or any(Path(out_dir).rglob("*"))
         return ok, proc.stdout, proc.stderr
@@ -782,14 +808,238 @@ st.markdown("""
 # MAIN TABS
 # ══════════════════════════════════════════════════════════════════════════════
 
-tab_analyze, tab_transpile = st.tabs([
+tab_start, tab_analyze, tab_transpile, tab_settings = st.tabs([
+    "📚  Get Started",
     "🔍  Analyzer",
     "⚡  Transpiler",
+    "⚙️  Settings",
 ])
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 1 — ANALYZER
+# TAB 1 — GET STARTED
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_start:
+
+    st.markdown("""
+    <div style="padding:0.5rem 0 2rem;max-width:760px;">
+        <h2 style="font-size:1.6rem;font-weight:800;color:#111827;margin-bottom:0.5rem;">
+            Welcome to SyrenBridge
+        </h2>
+        <p style="color:#6b7280;font-size:0.97rem;line-height:1.65;">
+            SyrenBridge is a <strong>code migration accelerator</strong> built by
+            <strong>SyrenCloud</strong> on top of <strong>Databricks Labs Lakebridge</strong>.
+            It helps data engineers move legacy SQL, ETL pipelines, and workflow orchestration
+            code to <strong>Databricks</strong> — quickly and accurately.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── How to use ────────────────────────────────────────────────────────────
+    st.markdown("""
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;
+                padding:1.25rem 1.5rem;margin-bottom:1.75rem;">
+        <div style="font-size:0.85rem;font-weight:700;color:#065f46;
+                    letter-spacing:0.05em;margin-bottom:0.75rem;">HOW TO USE THIS APP</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+            <div>
+                <div style="font-weight:700;color:#111827;margin-bottom:0.2rem;">
+                    🔍 Step 1 — Analyze
+                </div>
+                <div style="font-size:0.88rem;color:#6b7280;line-height:1.55;">
+                    Go to the <strong>Analyzer</strong> tab. Select your source technology,
+                    upload your source files, and run the analysis. You'll get a migration-readiness
+                    Excel report covering object inventory, function usage, and SQL categories.
+                </div>
+            </div>
+            <div>
+                <div style="font-weight:700;color:#111827;margin-bottom:0.2rem;">
+                    ⚡ Step 2 — Transpile
+                </div>
+                <div style="font-size:0.88rem;color:#6b7280;line-height:1.55;">
+                    Go to the <strong>Transpiler</strong> tab. Choose your source dialect
+                    (e.g. Teradata, Oracle, HiveSQL, Oozie), upload the files, and download
+                    the converted Databricks-compatible output.
+                </div>
+            </div>
+        </div>
+        <div style="margin-top:1rem;font-size:0.84rem;color:#374151;">
+            <strong>💡 New here?</strong> Start with the Analyzer to understand your migration scope,
+            then use the Transpiler to convert the code automatically. If you're running locally,
+            configure your Databricks workspace credentials in the <strong>⚙️ Settings</strong> tab first.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── What is Lakebridge vs. SyrenBridge ───────────────────────────────────
+    gs_col1, gs_col2 = st.columns(2, gap="large")
+
+    with gs_col1:
+        st.markdown("""
+        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:1.25rem 1.5rem;height:100%;">
+            <div style="font-size:0.82rem;font-weight:700;color:#6366f1;
+                        letter-spacing:0.05em;margin-bottom:0.6rem;">
+                POWERED BY DATABRICKS LABS LAKEBRIDGE
+            </div>
+            <div style="font-weight:700;font-size:1rem;color:#111827;margin-bottom:0.5rem;">
+                What Lakebridge provides
+            </div>
+            <ul style="font-size:0.87rem;color:#374151;line-height:1.7;padding-left:1.1rem;margin:0;">
+                <li>Analysis of <strong>36 source technologies</strong> (SQL, ETL, code)</li>
+                <li>Transpilation for <strong>10 CLI-based dialects</strong> (Teradata, Oracle, Netezza, Snowflake, Synapse, MS SQL, Informatica, Informatica Cloud, DataStage, SAP BODS)</li>
+                <li>Migration-readiness Excel reports with object inventory, function xref, and SQL category breakdown</li>
+                <li>CLI-driven — runs as a subprocess behind the scenes</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with gs_col2:
+        st.markdown("""
+        <div style="background:#fff5f3;border:1px solid #fecaca;border-radius:12px;padding:1.25rem 1.5rem;height:100%;">
+            <div style="font-size:0.82rem;font-weight:700;color:#dc2626;
+                        letter-spacing:0.05em;margin-bottom:0.6rem;">
+                BUILT BY SYRENCLOUD — ON TOP OF LAKEBRIDGE
+            </div>
+            <div style="font-weight:700;font-size:1rem;color:#111827;margin-bottom:0.5rem;">
+                What SyrenBridge adds
+            </div>
+            <ul style="font-size:0.87rem;color:#374151;line-height:1.7;padding-left:1.1rem;margin:0;">
+                <li><strong>HiveSQL (Cloudera)</strong> — custom engine using sqlglot to produce
+                    Databricks SQL dialect output. Strips STORED AS, ROW FORMAT, SERDE, and HDFS paths automatically.</li>
+                <li><strong>Oozie Workflow</strong> — converts <code>workflow.xml</code> to
+                    Databricks Jobs API 2.1 JSON. Handles hive, spark, shell, and java actions with dependency graph.</li>
+                <li>A polished Streamlit UI running on Databricks Apps</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<div style='height:1.5rem'></div>", unsafe_allow_html=True)
+
+    # ── Transpiler Dialects table ─────────────────────────────────────────────
+    st.markdown("""
+    <div style="font-weight:700;font-size:1rem;color:#111827;margin-bottom:0.75rem;">
+        ⚡ Transpiler — All 11 Supported Dialects
+    </div>
+    """, unsafe_allow_html=True)
+
+    dialect_rows = [
+        ("DataStage",           "Lakebridge CLI",          "PySpark / SparkSQL",           ".dsx .xml .pjb"),
+        ("HiveSQL (Cloudera)",  "SyrenBridge (sqlglot)",   "Databricks SQL (.sql) / PySpark (.py)", ".hql .hive .sql .ddl .dml"),
+        ("Informatica",         "Lakebridge CLI",          "PySpark / SparkSQL",           ".xml .session .wf .m .mplt .lkp"),
+        ("Informatica Cloud",   "Lakebridge CLI",          "PySpark / SparkSQL",           ".xml .json .session"),
+        ("MS SQL Server",       "Lakebridge CLI",          "PySpark / SparkSQL",           ".sql .ddl .dml .proc .view"),
+        ("Netezza",             "Lakebridge CLI",          "PySpark / SparkSQL",           ".sql .ddl .dml .nzb"),
+        ("Oracle",              "Lakebridge CLI",          "PySpark / SparkSQL",           ".sql .ddl .dml .pls .prc .vw"),
+        ("Snowflake",           "Lakebridge CLI",          "PySpark / SparkSQL",           ".sql .ddl .dml"),
+        ("Synapse",             "Lakebridge CLI",          "PySpark / SparkSQL",           ".sql .ddl .dml .json"),
+        ("Teradata",            "Lakebridge CLI",          "PySpark / SparkSQL",           ".sql .bteq .tdl .tpt .ddl .dml"),
+        ("Oozie (Workflow)",    "SyrenBridge (lxml)",      "Databricks Jobs JSON",         ".xml"),
+    ]
+
+    gs_table_rows = ""
+    for i, (dialect, engine, output, exts) in enumerate(dialect_rows):
+        bg = "#fafafa" if i % 2 == 0 else "#fff"
+        custom_badge = ""
+        if "SyrenBridge" in engine:
+            custom_badge = (
+                '<span style="font-size:0.68rem;background:#fef3c7;color:#92400e;'
+                'border:1px solid #fcd34d;border-radius:4px;padding:1px 5px;'
+                'font-weight:600;margin-left:4px;">CUSTOM</span>'
+            )
+        gs_table_rows += f"""
+        <tr style="background:{bg};">
+            <td style="padding:0.55rem 0.75rem;font-weight:600;color:#111827;">{dialect}</td>
+            <td style="padding:0.55rem 0.75rem;color:#374151;">{engine}{custom_badge}</td>
+            <td style="padding:0.55rem 0.75rem;color:#374151;">{output}</td>
+            <td style="padding:0.55rem 0.75rem;color:#6b7280;font-size:0.8rem;">{exts}</td>
+        </tr>"""
+
+    st.markdown(f"""
+    <div style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;margin-bottom:1.5rem;">
+        <table style="width:100%;border-collapse:collapse;font-size:0.87rem;">
+            <thead>
+                <tr style="background:#f3f4f6;">
+                    <th style="padding:0.6rem 0.75rem;text-align:left;color:#6b7280;
+                               font-size:0.75rem;font-weight:700;letter-spacing:0.05em;">DIALECT</th>
+                    <th style="padding:0.6rem 0.75rem;text-align:left;color:#6b7280;
+                               font-size:0.75rem;font-weight:700;letter-spacing:0.05em;">ENGINE</th>
+                    <th style="padding:0.6rem 0.75rem;text-align:left;color:#6b7280;
+                               font-size:0.75rem;font-weight:700;letter-spacing:0.05em;">OUTPUT</th>
+                    <th style="padding:0.6rem 0.75rem;text-align:left;color:#6b7280;
+                               font-size:0.75rem;font-weight:700;letter-spacing:0.05em;">FILE TYPES</th>
+                </tr>
+            </thead>
+            <tbody>{gs_table_rows}</tbody>
+        </table>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Analyzer technologies ─────────────────────────────────────────────────
+    st.markdown("""
+    <div style="font-weight:700;font-size:1rem;color:#111827;margin-bottom:0.75rem;">
+        🔍 Analyzer — All 36 Supported Technologies
+    </div>
+    """, unsafe_allow_html=True)
+
+    sql_techs    = [n for _, n, c in TECHNOLOGIES if c == "SQL"]
+    etl_techs    = [n for _, n, c in TECHNOLOGIES if c == "ETL"]
+    code_techs   = [n for _, n, c in TECHNOLOGIES if c == "Code"]
+
+    gs_a1, gs_a2, gs_a3 = st.columns(3, gap="medium")
+    def _tech_list(techs):
+        return "".join(f'<li style="padding:0.15rem 0;color:#374151;">{t}</li>' for t in techs)
+
+    with gs_a1:
+        st.markdown(f"""
+        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:1rem 1.25rem;">
+            <div style="font-size:0.78rem;font-weight:700;color:#6b7280;
+                        letter-spacing:0.05em;margin-bottom:0.5rem;">🗄️ SQL ({len(sql_techs)})</div>
+            <ul style="list-style:none;padding:0;margin:0;font-size:0.86rem;">
+                {_tech_list(sql_techs)}
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with gs_a2:
+        st.markdown(f"""
+        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:1rem 1.25rem;">
+            <div style="font-size:0.78rem;font-weight:700;color:#6b7280;
+                        letter-spacing:0.05em;margin-bottom:0.5rem;">🔄 ETL ({len(etl_techs)})</div>
+            <ul style="list-style:none;padding:0;margin:0;font-size:0.86rem;">
+                {_tech_list(etl_techs)}
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with gs_a3:
+        st.markdown(f"""
+        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:1rem 1.25rem;">
+            <div style="font-size:0.78rem;font-weight:700;color:#6b7280;
+                        letter-spacing:0.05em;margin-bottom:0.5rem;">💻 Code ({len(code_techs)})</div>
+            <ul style="list-style:none;padding:0;margin:0;font-size:0.86rem;">
+                {_tech_list(code_techs)}
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<div style='height:1.5rem'></div>", unsafe_allow_html=True)
+
+    # ── PySpark / Serverless note ─────────────────────────────────────────────
+    st.markdown(
+        '<div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;'
+        'padding:0.75rem 1rem;font-size:0.87rem;color:#1e40af;">'
+        '💡 <strong>PySpark & Spark Classic → Serverless migration</strong> is a separate accelerator. '
+        'Use the <strong>Syren Server to Serverless Migration Platform</strong>: '
+        '<a href="https://syren-s2s-platform-204242957656703.3.azure.databricksapps.com/#home" '
+        'target="_blank" style="color:#1d4ed8;font-weight:600;">Open platform →</a>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 2 — ANALYZER
 # ══════════════════════════════════════════════════════════════════════════════
 
 with tab_analyze:
@@ -1203,6 +1453,22 @@ with tab_transpile:
                 '<code>/api/2.1/jobs</code></div>',
                 unsafe_allow_html=True,
             )
+        elif dialect_info.get("custom"):
+            # HiveSQL custom engine supports both SparkSQL and PySpark output formats
+            selected_target_label = st.selectbox(
+                "Output format",
+                options=list(TRANSPILER_TARGETS.keys()),
+                key="tp_target",
+                label_visibility="collapsed",
+            )
+            target_cli = TRANSPILER_TARGETS[selected_target_label]
+            st.markdown(
+                '<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;'
+                'padding:0.6rem 1rem;font-size:0.82rem;color:#065f46;font-weight:500;">'
+                '🗄️ SQL output uses <strong>Databricks SQL dialect</strong> — '
+                'runs directly on Databricks SQL Warehouses &amp; clusters</div>',
+                unsafe_allow_html=True,
+            )
         else:
             selected_target_label = st.selectbox(
                 "Target technology",
@@ -1388,6 +1654,24 @@ with tab_transpile:
             # ── Results ──────────────────────────────────────────────────────
             if n_out > 0:
                 st.markdown("<hr class='section-sep'>", unsafe_allow_html=True)
+
+                # Oozie-specific notes shown with results
+                if dialect_info.get("oozie"):
+                    st.markdown(
+                        '<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;'
+                        'padding:0.75rem 1rem;margin-bottom:1rem;font-size:0.87rem;color:#92400e;">'
+                        '⚠️ <strong>Oozie Limitations to review in the generated JSON:</strong>'
+                        '<ul style="margin:0.4rem 0 0 1rem;padding:0;line-height:1.8;">'
+                        '<li><strong>Fork/Join not supported</strong> — parallel branches (<code>&lt;fork&gt;</code>/<code>&lt;join&gt;</code>) '
+                        'are silently skipped. Review your workflow XML for these nodes and add the parallel tasks manually in the Databricks Workflow editor.</li>'
+                        '<li><strong>EL expressions</strong> (<code>${variable}</code>) are preserved as-is — replace them with Databricks job parameters or widget values.</li>'
+                        '<li><strong>Coordinator &amp; Bundle</strong> schedules are not converted — recreate them as Databricks Job schedules (cron or trigger-based).</li>'
+                        '<li>Placeholder values marked <code>&lt;replace: …&gt;</code> must be filled in before deploying the job.</li>'
+                        '</ul>'
+                        '</div>',
+                        unsafe_allow_html=True,
+                    )
+
                 st.markdown("""
                 <div class="results-header">
                     <div class="results-title">
@@ -1495,4 +1779,147 @@ with tab_transpile:
             # Note: tp_out_dir is kept in memory via zip_bytes; cleaned after download
             # In production, a cleanup hook or time-based cleanup is recommended.
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 4 — SETTINGS
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_settings:
+
+    st.markdown("""
+    <div style="padding:0.5rem 0 1.25rem;max-width:680px;">
+        <h2 style="font-size:1.4rem;font-weight:800;color:#111827;margin-bottom:0.4rem;">
+            Databricks Connection Settings
+        </h2>
+        <p style="color:#6b7280;font-size:0.92rem;line-height:1.6;">
+            Configure credentials for the Databricks CLI and Lakebridge.
+            These are written to the subprocess environment for the current session only —
+            nothing is persisted to disk.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Deployment context note ───────────────────────────────────────────────
+    db_host_env = os.environ.get("DATABRICKS_HOST", "")
+    db_token_env = os.environ.get("DATABRICKS_TOKEN", "")
+
+    if db_host_env:
+        st.markdown(
+            f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;'
+            f'padding:0.7rem 1rem;margin-bottom:1.25rem;font-size:0.87rem;color:#065f46;">'
+            f'✅ <strong>Databricks workspace detected</strong> — <code>{db_host_env}</code> '
+            f'is already set via environment variable. '
+            f'The fields below will override it for this session if filled in.'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;'
+            'padding:0.7rem 1rem;margin-bottom:1.25rem;font-size:0.87rem;color:#92400e;">'
+            '⚠️ <strong>No Databricks workspace detected</strong> in environment. '
+            'Fill in the fields below, or configure a profile with '
+            '<code>databricks configure --profile &lt;name&gt;</code> before launching the app. '
+            '<br><br>'
+            '<strong>On Databricks Apps:</strong> credentials are injected automatically — '
+            'you do not need to fill anything in here.'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("---")
+
+    # ── Credential form ───────────────────────────────────────────────────────
+    cfg_col1, cfg_col2 = st.columns([3, 2], gap="large")
+
+    with cfg_col1:
+        st.markdown("##### Option A — Host + Token (recommended for local use)")
+
+        st.text_input(
+            "Databricks Workspace URL",
+            key="sb_db_host",
+            placeholder="https://adb-XXXXXXXXXXXX.XX.azuredatabricks.net",
+            help="The full URL of your Databricks workspace, e.g. https://adb-1234567890.1.azuredatabricks.net",
+        )
+
+        st.text_input(
+            "Personal Access Token (PAT)",
+            key="sb_db_token",
+            type="password",
+            placeholder="dapi…",
+            help="Generate a token in Databricks → User Settings → Developer → Access Tokens.",
+        )
+
+        st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
+        st.markdown("##### Option B — Named Profile")
+        st.text_input(
+            "Databricks Config Profile",
+            key="sb_db_profile",
+            placeholder="DEFAULT",
+            help=(
+                "Name of the profile in your ~/.databrickscfg file. "
+                "Leave blank to use the DEFAULT profile. "
+                "Create profiles with: databricks configure --profile <name>"
+            ),
+        )
+
+    with cfg_col2:
+        st.markdown("##### How to get a Personal Access Token")
+        st.markdown("""
+1. Open your Databricks workspace in a browser.
+2. Click your username (top right) → **Settings**.
+3. Go to **Developer** → **Access Tokens** → **Generate new token**.
+4. Give it a name and copy the token value — you won't see it again.
+5. Paste it in the **PAT** field on the left.
+
+##### How to configure a CLI profile
+```bash
+databricks configure --profile myprofile
+# Enter workspace URL and token when prompted
+```
+Then set **Profile** = `myprofile` on the left.
+
+##### Azure / GCP / AWS
+SyrenBridge works with any Databricks workspace. The workspace URL format varies:
+- **Azure:** `https://adb-XXXX.XX.azuredatabricks.net`
+- **AWS:** `https://XXXX.cloud.databricks.com`
+- **GCP:** `https://XXXX.gcp.databricks.com`
+        """)
+
+    # ── Live status check ─────────────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("##### Connection Status")
+
+    if st.button("🔍 Test Databricks CLI connection", key="test_db_connection"):
+        test_env = get_env()
+        with st.spinner("Checking `databricks auth status`…"):
+            try:
+                result = subprocess.run(
+                    ["databricks", "auth", "status"],
+                    capture_output=True, text=True, timeout=30, env=test_env,
+                )
+                if result.returncode == 0:
+                    st.success("✅ Connection successful")
+                    st.code(result.stdout or "(no output)", language="text")
+                else:
+                    st.error("❌ Connection failed")
+                    st.code(result.stderr or result.stdout or "(no output)", language="text")
+            except FileNotFoundError:
+                st.error(
+                    "❌ `databricks` CLI not found in PATH.\n\n"
+                    "Install it:\n"
+                    "```bash\n"
+                    "curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh\n"
+                    "databricks labs install lakebridge\n"
+                    "```"
+                )
+            except subprocess.TimeoutExpired:
+                st.error("❌ Connection test timed out after 30 seconds.")
+
+    st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+    st.caption(
+        "Credentials are held in session state only. "
+        "They are injected into the subprocess environment for Analyzer and Transpiler calls "
+        "and are not stored to disk or shared between users."
+    )
 
