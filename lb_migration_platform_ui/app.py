@@ -252,6 +252,29 @@ div[data-testid="stButton"] button:disabled {
     box-shadow: none !important; transform: none !important;
 }
 
+/* ── Sidebar collapse / expand toggle ───────────────────────────────────── */
+/* The expand arrow shown when sidebar is collapsed must always be visible */
+[data-testid="collapsedControl"] {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    background: #0f172a !important;
+    border-radius: 0 8px 8px 0 !important;
+    box-shadow: 2px 0 8px rgba(15,23,42,0.25) !important;
+}
+[data-testid="collapsedControl"] button,
+[data-testid="collapsedControl"] span {
+    background: transparent !important;
+    box-shadow: none !important;
+    transform: none !important;
+    color: #94a3b8 !important;
+    padding: 0 !important;
+}
+[data-testid="collapsedControl"] svg {
+    fill: #94a3b8 !important;
+    stroke: #94a3b8 !important;
+}
+
 /* ── Metric cards ────────────────────────────────────────────────────────── */
 .metric-card {
     background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
