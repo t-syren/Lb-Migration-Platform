@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<workflow-app name="retail-etl-pipeline" xmlns="uri:oozie:workflow:0.5">
+
+  <global>
+    <job-tracker>${jobTracker}</job-tracker>
+    <name-node>${nameNode}</name-node>
+  </global>
+
+  <start to="ingest-customers"/>
+
+  <action name="ingest-customers">
+    <hive xmlns="uri:oozie:hive-action:0.2">
+      <script>scripts/ingest_customers.hql</script>
+      <param>INPUT_PATH=${inputPath}/customers</param>
+      <param>OUTPUT_TABLE=retail_db.customers</param>
+    </hive>
+    <ok to="ingest-transactions"/>
+    <error to="fail"/>
+  </action>
+
+  <action name="ingest-transactions">
+    <hive xmlns="uri:oozie:hive-action:0.2">
+      <script>scripts/ingest_transactions.hql</script>
+      <param>TXN_DATE=${txnDate}</param>
+    </hive>
+    <ok to="transform-spark"/>
+    <error to="fail"/>
+  </action>
+
+  <action name="transform-spark">
+    <spark xmlns="uri:oozie:spark-action:0.2">
+      <master>yarn</master>
+      <mode>cluster</mode>
+      <name>RetailTransform</name>
+      <class>com.syren.RetailTransformJob</class>
+      <jar>lib/retail-transform.jar</jar>
+      <arg>--date</arg>
+      <arg>${txnDate}</arg>
+    </spark>
+    <ok to="export-report"/>
+    <error to="fail"/>
+  </action>
+
+  <action name="export-report">
+    <shell xmlns="uri:oozie:shell-action:0.2">
+      <exec>scripts/export_report.sh</exec>
+      <argument>${txnDate}</argument>
+      <argument>${reportPath}</argument>
+    </shell>
+    <ok to="end"/>
+    <error to="fail"/>
+  </action>
+
+  <kill name="fail">
+    <message>Workflow failed, error message[${wf:errorMessage(wf:lastErrorNode())}]</message>
+  </kill>
+
+  <end name="end"/>
+
+</workflow-app>
