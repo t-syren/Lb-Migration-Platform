@@ -770,7 +770,7 @@ st.markdown("""
     </div>
     <div class="hero-badges">
         <span class="badge">🔍 Analyzer — 36 Technologies</span>
-        <span class="badge">⚡ Transpiler — 10 Dialects</span>
+        <span class="badge">⚡ Transpiler — 11 Dialects</span>
         <span class="badge">🎯 PySpark &amp; SparkSQL Output</span>
         <span class="badge">☁️ Runs on Databricks Apps</span>
     </div>
@@ -1138,8 +1138,8 @@ with tab_transpile:
         '<div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;'
         'padding:0.65rem 1rem;margin-bottom:1rem;font-size:0.83rem;color:#1e40af;">'
         '💡 <strong>PySpark & Spark Classic → Serverless migration</strong> is available through '
-        'the Databricks Migrations Accelerator. '
-        '<a href="https://www.databricks.com/resources/demos/tutorials/governance/serverless-migration" '
+        'the <strong>Syren Server to Serverless Migration Platform</strong>. '
+        '<a href="https://syren-s2s-platform-204242957656703.3.azure.databricksapps.com/#home" '
         'target="_blank" style="color:#1d4ed8;font-weight:600;">Learn more →</a>'
         '</div>',
         unsafe_allow_html=True,
@@ -1463,7 +1463,8 @@ with tab_transpile:
                         with tab:
                             try:
                                 content = fp.read_text(encoding="utf-8", errors="replace")
-                                lang = "python" if fp.suffix == ".py" else "sql"
+                                _lang_map = {".py": "python", ".json": "json", ".yaml": "yaml", ".yml": "yaml", ".xml": "xml"}
+                                lang = _lang_map.get(fp.suffix.lower(), "sql")
                                 st.code(content, language=lang)
                             except Exception as e:
                                 st.warning(f"Could not read file: {e}")
@@ -1492,6 +1493,6 @@ with tab_transpile:
                 if d and os.path.exists(d):
                     shutil.rmtree(d, ignore_errors=True)
             # Note: tp_out_dir is kept in memory via zip_bytes; cleaned after download
-            # In production, a cleanup hook or time-based cleanup is recommended.git
+            # In production, a cleanup hook or time-based cleanup is recommended.
 
 
