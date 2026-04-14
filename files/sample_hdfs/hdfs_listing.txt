@@ -1,0 +1,13 @@
+Found 12 items
+drwxr-xr-x   - hadoop supergroup          0 2024-01-15 10:23 /user/retail_db
+drwxr-xr-x   - hadoop supergroup          0 2024-01-15 10:23 /user/retail_db/customers
+-rw-r--r--   3 hadoop supergroup    4194304 2024-01-15 10:23 /user/retail_db/customers/customers_20240115.parquet
+drwxr-xr-x   - hadoop supergroup          0 2024-01-15 10:24 /user/retail_db/transactions
+-rw-r--r--   3 hadoop supergroup   16777216 2024-01-15 10:24 /user/retail_db/transactions/txns_20240115.parquet
+-rw-r--r--   3 hadoop supergroup    2097152 2024-01-14 09:10 /user/retail_db/transactions/txns_20240114.parquet
+drwxr-xr-x   - hadoop supergroup          0 2024-01-10 08:00 /user/raw_data
+-rw-r--r--   3 hadoop supergroup     524288 2024-01-10 08:00 /user/raw_data/extra_cust.csv
+drwxr-xr-x   - hadoop supergroup          0 2024-01-12 14:30 /warehouse
+drwxr-xr-x   - hadoop supergroup          0 2024-01-12 14:30 /warehouse/hive/retail_db.db
+-rw-r--r--   3 hadoop supergroup    8388608 2024-01-12 14:30 /warehouse/hive/retail_db.db/customers/000000_0
+drwxr-xr-x   - hadoop supergroup          0 2024-01-12 14:30 /warehouse/hive/retail_db.db/transactions
