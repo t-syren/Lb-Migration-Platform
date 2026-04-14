@@ -97,3 +97,18 @@ class TestMigrateNotebook:
         result = migrate_notebook(json.dumps(nb))
         parsed = json.loads(result.transformed_code)
         assert "hdfs://" in parsed["cells"][0]["source"]
+
+    def test_notebook_warnings_deduplicated(self):
+        nb = {
+            "cells": [
+                {"cell_type": "code", "source": ["sc.textFile('/a')"]},
+                {"cell_type": "code", "source": ["sc.textFile('/b')"]},
+            ],
+            "metadata": {},
+            "nbformat": 4,
+            "nbformat_minor": 5,
+        }
+        result = migrate_notebook(json.dumps(nb))
+        # Both cells trigger the same RDD warning — should appear only once
+        rdd_warnings = [w for w in result.warnings if "sc.textFile" in w or "RDD" in w]
+        assert len(rdd_warnings) == 1

@@ -1,4 +1,5 @@
 """PySpark script migration: path rewrites, deprecated API warnings, best-practice hints."""
+import copy
 import json
 import re
 import logging
@@ -68,7 +69,10 @@ def migrate_pyspark_script(code: str) -> MigrationResult:
 
 def migrate_notebook(ipynb_json: str) -> MigrationResult:
     """Migrate all code cells in a Jupyter notebook JSON string."""
-    nb = json.loads(ipynb_json)
+    try:
+        nb = copy.deepcopy(json.loads(ipynb_json))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid notebook JSON: {exc}") from exc
     all_warnings: List[str] = []
 
     for cell in nb.get("cells", []):
