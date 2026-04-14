@@ -20,8 +20,7 @@ import pandas as pd
 import streamlit as st
 
 import sys
-import os as _os
-sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from modules.sql_transpiler import transpile_hive_sql, infer_schema
 from modules.dummy_data import register_temp_tables
@@ -1638,3 +1637,10 @@ with tab6:
         if sql_ddl.strip() and st.button("Rewrite LOCATION Paths", key="hdfs_rewrite_btn"):
             rewritten = rewrite_sql_locations(sql_ddl, target=loc_target)
             st.code(rewritten, language="sql")
+            st.download_button(
+                "⬇️ Download Rewritten SQL",
+                data=rewritten,
+                file_name="rewritten_locations.sql",
+                mime="text/plain",
+                key="hdfs_rewrite_download",
+            )
