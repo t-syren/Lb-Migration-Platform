@@ -802,7 +802,7 @@ with st.sidebar:
     <div style="padding:1.75rem 0.5rem 1.25rem;">
         <div style="font-size:1.3rem;font-weight:800;color:#f1f5f9;
                     letter-spacing:-0.03em;line-height:1;">
-            Syren<span style="color:#ef4444;">Bridge</span>
+            Syren<span style="color:#FF3621;">Bridge</span>
         </div>
         <div style="font-size:0.67rem;color:#475569;margin-top:4px;font-weight:600;
                     letter-spacing:0.1em;text-transform:uppercase;">
