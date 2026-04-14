@@ -10,8 +10,10 @@ A Streamlit-based migration accelerator that wraps **Databricks Labs Lakebridge*
 - [What Lakebridge Provides Natively](#what-lakebridge-provides-natively)
 - [What SyrenBridge Adds](#what-syrenbridge-adds)
 - [Application Tabs](#application-tabs)
+  - [Get Started](#get-started-tab)
   - [Analyzer](#analyzer-tab)
   - [Transpiler](#transpiler-tab)
+  - [Settings](#settings-tab)
 - [Supported Technologies — All 11 Dialects](#supported-technologies--all-11-dialects)
 - [Module Architecture](#module-architecture)
 - [Sample Files](#sample-files)
@@ -111,6 +113,16 @@ Apache Oozie is not supported by Lakebridge. SyrenBridge adds it as the 11th tra
 
 ## Application Tabs
 
+### Get Started Tab
+
+Landing page and documentation for new users.
+
+- 2-step guide (Analyze → Transpile)
+- Side-by-side comparison: what Lakebridge provides vs. what SyrenBridge adds
+- Full 11-dialect transpiler table with engine type and output format
+- 36 Analyzer technologies grouped by SQL / ETL / Code
+- Link to the Syren S2S platform for PySpark/Serverless migrations
+
 ### Analyzer Tab
 
 Calls `lakebridge analyze` on uploaded source files or a local directory.
@@ -126,14 +138,23 @@ Converts source code to Databricks-compatible output.
 
 - Select source dialect from 11 options
 - Upload individual files or a ZIP archive
-- For most dialects: choose output target (PySpark or SparkSQL)
-- For Oozie: output is always Databricks Workflow JSON (no target selector shown)
+- For HiveSQL: choose output format (Databricks SQL `.sql` or PySpark `.py`); green badge clarifies Databricks dialect is used
+- For Oozie: output is always Databricks Workflow JSON; limitations warning (fork/join, EL expressions, Coordinator) shown with results
+- For all other dialects: choose PySpark or SparkSQL
 - View transpiled output with syntax highlighting per file type
 - Download all output as a ZIP
 
-The HiveSQL engine provides a side-by-side diff and optionally runs PySpark local validation. The Oozie engine shows parsed actions (name, type, dependencies) before generating the JSON.
-
 **PySpark note**: A blue info banner in the Transpiler tab links to the Syren Server to Serverless Migration Platform for PySpark and Spark Classic → Serverless migrations.
+
+### Settings Tab
+
+Configure Databricks credentials for local use. On Databricks Apps, auth is automatic.
+
+- Input Databricks Workspace URL and Personal Access Token
+- Or specify a named profile from `~/.databrickscfg`
+- Credentials are held in session state only — never written to disk
+- Live connection test via `databricks auth status`
+- Auto-detects if `DATABRICKS_HOST` is already set in the environment
 
 ---
 

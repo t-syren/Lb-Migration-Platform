@@ -31,6 +31,18 @@ SyrenBridge is a Streamlit app (deployed on Databricks Apps) that wraps **Databr
 
 ---
 
+## Tab Structure
+
+The app has 4 tabs: `tab_start`, `tab_analyze`, `tab_transpile`, `tab_settings`.
+
+- `tab_start` — Get Started documentation (no state dependencies)
+- `tab_analyze` — Analyzer (calls Lakebridge CLI)
+- `tab_transpile` — Transpiler (Lakebridge CLI / custom engines)
+- `tab_settings` — Credentials form; writes to `st.session_state` keys `sb_db_host`, `sb_db_token`, `sb_db_profile`
+
+Credentials flow: Settings tab → `st.session_state` → `get_env()` → `subprocess.run(env=get_env())`.
+The `get_env()` function (defined before the helper section) overlays session credentials on top of `os.environ`.
+
 ## Key Architecture Rules
 
 - `modules/` files are pure Python — **no Streamlit imports**. They are tested independently with pytest.
