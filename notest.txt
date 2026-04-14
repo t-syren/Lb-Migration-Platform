@@ -2,3 +2,9 @@ venv - lb
 https://databrickslabs.github.io/lakebridge/docs/installation/
 
 to authenticate - databricks auth login --host https://adb-204242957656703.3.azuredatabricks.net
+
+
+to run claudde
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
+
+claude --resume syrenbridge-migration-toolkit
