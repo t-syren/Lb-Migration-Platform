@@ -181,6 +181,8 @@ section[data-testid="stSidebar"] span,
 section[data-testid="stSidebar"] div,
 section[data-testid="stSidebar"] label { color: #94a3b8 !important; }
 section[data-testid="stSidebar"] hr { border-color: #1e293b !important; }
+/* Brand accent — must come after the general rule to win */
+section[data-testid="stSidebar"] span.sb-accent { color: #FF3621 !important; }
 
 /* Hide the auto-generated radio group label */
 section[data-testid="stSidebar"] .stRadio > label { display: none !important; }
@@ -802,7 +804,7 @@ with st.sidebar:
     <div style="padding:1.75rem 0.5rem 1.25rem;">
         <div style="font-size:1.3rem;font-weight:800;color:#f1f5f9;
                     letter-spacing:-0.03em;line-height:1;">
-            Syren<span style="color:#FF3621;">Bridge</span>
+            Syren<span class="sb-accent">Bridge</span>
         </div>
         <div style="font-size:0.67rem;color:#475569;margin-top:4px;font-weight:600;
                     letter-spacing:0.1em;text-transform:uppercase;">
