@@ -40,6 +40,12 @@ The app has 4 tabs: `tab_start`, `tab_analyze`, `tab_transpile`, `tab_settings`.
 - `tab_transpile` — Transpiler (Lakebridge CLI / custom engines)
 - `tab_settings` — Credentials form; writes to `st.session_state` keys `sb_db_host`, `sb_db_token`, `sb_db_profile`
 
+Both Analyzer and Transpiler now support Databricks workspace browsing as an alternative source input path. Each uses a `📂 Upload Files` / `☁️ Databricks Workspace` tabbed UI:
+
+- `Upload Files` lets users choose individual source files or a ZIP archive.
+- `Databricks Workspace` lets users navigate folders, select workspace files, and fetch them locally for analysis/transpilation.
+- Transpiler also supports uploading converted output files back into a target Databricks workspace folder.
+
 Credentials flow: Settings tab → `st.session_state` → `get_env()` → `subprocess.run(env=get_env())`.
 The `get_env()` function (defined before the helper section) overlays session credentials on top of `os.environ`.
 
@@ -49,6 +55,20 @@ The `get_env()` function (defined before the helper section) overlays session cr
 - `app.py` imports from `modules/` and handles all Streamlit rendering.
 - PySpark is only used in `modules/dummy_data.py`, `modules/sql_validator.py`, and tests — never in the Streamlit render path (it's too slow to start on page load).
 - sqlglot dialect must be `write="databricks"` for HiveSQL output, NOT `write="spark"`.
+
+---
+
+## Databricks Workspace Integration
+
+The app now includes first-class Databricks workspace support in both Analyzer and Transpiler:
+
+- Workspace browsing uses `DatabricksClient.from_app_context()` and `DatabricksClient.list_workspace_items()`.
+- Users can navigate folders, open directories, and select notebook/file objects from the Databricks workspace.
+- Selected workspace files are fetched locally using `fetch_workspace_files_to_local()` before analysis/transpilation.
+- Transpiler can upload converted output files back to Databricks using `upload_directory_to_workspace()`.
+- The upload helper creates missing workspace folders and writes each output file with the correct Databricks file language metadata.
+
+These features make it possible to source files directly from Databricks and publish converted results back into the workspace without leaving the app.
 
 ---
 
