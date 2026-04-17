@@ -23,6 +23,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from modules.oozie_converter import workflow_to_json, parse_workflow
+from modules.databricks_service import DatabricksClient
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DATA — ANALYZER
@@ -353,6 +354,259 @@ def zip_directory(directory: str) -> bytes:
     return buf.getvalue()
 
 
+def _workspace_language_for_path(path: str) -> str:
+    ext = Path(path).suffix.lower()
+    if ext == ".py":
+        return "PYTHON"
+    if ext == ".sql":
+        return "SQL"
+    if ext == ".scala":
+        return "SCALA"
+    if ext == ".java":
+        return "JAVA"
+    if ext in {".json", ".yaml", ".yml", ".txt", ".md", ".csv"}:
+        return "PYTHON"
+    return "PYTHON"
+
+
+def _ensure_workspace_folder(client: DatabricksClient, folder_path: str) -> None:
+    folder_path = folder_path.strip()
+    if not folder_path:
+        return
+    if not folder_path.startswith("/"):
+        folder_path = "/" + folder_path
+
+    parts = [p for p in folder_path.split("/") if p]
+    current = ""
+    for part in parts:
+        current += "/" + part
+        client.create_folder(current)
+
+
+def upload_directory_to_workspace(out_dir: str, workspace_path: str) -> tuple[bool, list[str]]:
+    client = DatabricksClient.from_app_context()
+    workspace_path = workspace_path.strip()
+    if not workspace_path:
+        return False, ["Workspace destination path is required."]
+    if not workspace_path.startswith("/"):
+        workspace_path = "/" + workspace_path
+
+    errors: list[str] = []
+    for file_path in sorted(Path(out_dir).rglob("*")):
+        if not file_path.is_file():
+            continue
+
+        relative_path = file_path.relative_to(out_dir).as_posix()
+        target_path = f"{workspace_path.rstrip('/')}/{relative_path}"
+        parent = os.path.dirname(target_path)
+        if parent:
+            _ensure_workspace_folder(client, parent)
+
+        content = file_path.read_text(encoding="utf-8", errors="replace")
+        response = client.write_file(
+            path=target_path,
+            content=content,
+            language=_workspace_language_for_path(file_path.name),
+        )
+        if isinstance(response, dict) and response.get("error"):
+            errors.append(f"{target_path}: {response['error']}")
+
+    if errors:
+        return False, errors
+    return True, []
+
+
+def clear_transpile_output_state() -> None:
+    existing = st.session_state.pop("tp_out_dir", None)
+    st.session_state.pop("tp_output_info", None)
+    if existing and os.path.exists(existing):
+        shutil.rmtree(existing, ignore_errors=True)
+
+
+def store_transpile_output_state(out_dir: str, info: dict) -> None:
+    st.session_state["tp_out_dir"] = out_dir
+    st.session_state["tp_output_info"] = info
+
+
+def render_transpile_output_section() -> None:
+    tp_out_dir = st.session_state.get("tp_out_dir")
+    info = st.session_state.get("tp_output_info", {})
+    if not tp_out_dir or not os.path.exists(tp_out_dir):
+        return
+
+    n_out = info.get("n_out", 0)
+    if n_out == 0:
+        return
+
+    selected_dialect_name = info.get("selected_dialect_name", "Transpiler")
+    selected_target_label = info.get("selected_target_label", "Target")
+    dialect_cli = info.get("dialect_cli", "output")
+    target_cli = info.get("target_cli", "output")
+    n_src = info.get("n_src", 0)
+    b_out = info.get("b_out", 0)
+    elapsed = info.get("elapsed", 0.0)
+
+    st.markdown("<hr class='section-sep'>", unsafe_allow_html=True)
+
+    if info.get("is_oozie"):
+        st.markdown(
+            '<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;'
+            'padding:0.75rem 1rem;margin-bottom:1rem;font-size:0.87rem;color:#92400e;">'
+            '⚠️ <strong>Oozie Limitations to review in the generated JSON:</strong>'
+            '<ul style="margin:0.4rem 0 0 1rem;padding:0;line-height:1.8;">'
+            '<li><strong>Fork/Join not supported</strong> — parallel branches (<code>&lt;fork&gt;</code>/<code>&lt;join&gt;</code>) '
+            'are silently skipped. Review your workflow XML for these nodes and add the parallel tasks manually in the Databricks Workflow editor.</li>'
+            '<li><strong>EL expressions</strong> (<code>${variable}</code>) are preserved as-is — replace them with Databricks job parameters or widget values.</li>'
+            '<li><strong>Coordinator &amp; Bundle</strong> schedules are not converted — recreate them as Databricks Job schedules (cron or trigger-based).</li>'
+            '<li>Placeholder values marked <code>&lt;replace: …&gt;</code> must be filled in before deploying the job.</li>'
+            '</ul>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("""
+    <div class="results-header">
+        <div class="results-title">
+            ⚡ Transpiled Output <span class="success-pill">Ready</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    mc1, mc2, mc3 = st.columns(3)
+    with mc1:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">📁</div>
+            <div class="metric-val">{n_src}</div>
+            <div class="metric-lbl">Files Processed</div>
+        </div>""", unsafe_allow_html=True)
+    with mc2:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">✅</div>
+            <div class="metric-val">{n_out}</div>
+            <div class="metric-lbl">Files Generated</div>
+        </div>""", unsafe_allow_html=True)
+    with mc3:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">⚡</div>
+            <div class="metric-val">{elapsed:.1f}s</div>
+            <div class="metric-lbl">Time Taken</div>
+        </div>""", unsafe_allow_html=True)
+
+    st.markdown("<div style='height:1.25rem'></div>", unsafe_allow_html=True)
+
+    zip_bytes = zip_directory(tp_out_dir)
+    zip_name = f"transpiled_{dialect_cli}_{target_cli.lower()}.zip"
+    dl_col, info_col = st.columns([1, 2])
+    with dl_col:
+        st.download_button(
+            label="📥  Download All Output Files",
+            data=zip_bytes,
+            file_name=zip_name,
+            mime="application/zip",
+            key="tp_download_all_output_helper",
+            use_container_width=True,
+        )
+    with info_col:
+        st.markdown(f"""
+        <div class="info-box">
+            <strong>📦 {zip_name}</strong>
+            <p>{n_out} converted file(s) · {b_out/1024:.1f} KB total</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<div style='height:1.25rem'></div>", unsafe_allow_html=True)
+
+    st.session_state["tp_upload_dest"] = st.session_state.get("tp_upload_dest", "/Shared/transpiler_output")
+    upload_dest = st.text_input(
+        "Upload output to Databricks workspace folder",
+        value=st.session_state["tp_upload_dest"],
+        key="tp_upload_dest",
+        help="Enter the target Databricks workspace folder where transpiled files will be uploaded.",
+    )
+    if upload_dest and not upload_dest.startswith("/"):
+        upload_dest = "/" + upload_dest
+        st.session_state["tp_upload_dest"] = upload_dest
+
+    if st.button("📤  Upload All Output Files to Databricks", key="tp_upload_output", use_container_width=True):
+        try:
+            ok, upload_errors = upload_directory_to_workspace(tp_out_dir, upload_dest)
+            if ok:
+                st.success(f"✅ Uploaded {n_out} files to {upload_dest}")
+            else:
+                st.error("Upload failed. See details below.")
+                for msg in upload_errors:
+                    st.write(f"- {msg}")
+        except Exception as e:
+            st.error(f"Upload error: {e}")
+
+    st.markdown("**📂 Output File Tree**")
+    tree_html, _, _ = build_file_tree_html(tp_out_dir)
+    st.markdown(f'<div class="file-tree">{tree_html}</div>', unsafe_allow_html=True)
+
+    st.markdown("<div style='height:1.25rem'></div>", unsafe_allow_html=True)
+
+    output_files = sorted(
+        [p for p in Path(tp_out_dir).rglob("*") if p.is_file() and p.name != "transpile_errors.log"],
+        key=lambda p: str(p)
+    )
+    if output_files:
+        st.markdown("**👁️ File Preview**")
+        preview_tabs = st.tabs([p.name for p in output_files[:20]])
+        for tab, fp in zip(preview_tabs, output_files[:20]):
+            with tab:
+                try:
+                    content = fp.read_text(encoding="utf-8", errors="replace")
+                    _lang_map = {".py": "python", ".json": "json", ".yaml": "yaml", ".yml": "yaml", ".xml": "xml"}
+                    lang = _lang_map.get(fp.suffix.lower(), "sql")
+                    st.code(content, language=lang)
+                except Exception as e:
+                    st.warning(f"Could not read file: {e}")
+        if len(output_files) > 20:
+            st.caption(f"Showing first 20 of {len(output_files)} files. Download the ZIP to view all.")
+
+    tp_err_file = os.path.join(tp_out_dir, "transpile_errors.log")
+    if os.path.exists(tp_err_file):
+        err_content = Path(tp_err_file).read_text(encoding="utf-8", errors="replace").strip()
+        if err_content:
+            with st.expander("⚠️ Transpilation error log", expanded=False):
+                st.code(err_content, language="text")
+        else:
+            st.success("✅ No transpilation errors logged.")
+
+
+def is_valid_excel(path):
+    try:
+        import pandas as pd
+        pd.ExcelFile(path)
+        return True
+    except Exception:
+        return False
+
+
+def make_widget_key(prefix: str, path: str) -> str:
+    normalized = path.strip("/").replace("/", "_").replace(" ", "_")
+    return f"{prefix}_{normalized}"
+
+
+def fetch_workspace_files_to_local(paths):
+    dbx = DatabricksClient.from_app_context()
+    temp_dir = tempfile.mkdtemp(prefix="ws_src_")
+
+    for p in paths:
+        content = dbx.get_file_content(p)
+
+        if isinstance(content, dict):  # error
+            continue
+
+        filename = os.path.basename(p)
+        with open(os.path.join(temp_dir, filename), "w", encoding="utf-8") as f:
+            f.write(content)
+
+    return temp_dir
+
 # ══════════════════════════════════════════════════════════════════════════════
 # CREDENTIALS HELPER
 # ══════════════════════════════════════════════════════════════════════════════
@@ -366,6 +620,7 @@ def get_env() -> dict:
       - sb_db_profile → DATABRICKS_CONFIG_PROFILE
     If the keys are empty or absent the existing environment values are used.
     """
+    sync_databricks_env_from_session_state()
     env = os.environ.copy()
     host = st.session_state.get("sb_db_host", "").strip()
     token = st.session_state.get("sb_db_token", "").strip()
@@ -377,6 +632,62 @@ def get_env() -> dict:
     if profile:
         env["DATABRICKS_CONFIG_PROFILE"] = profile
     return env
+
+
+def sync_databricks_env_from_session_state() -> None:
+    host = st.session_state.get("sb_db_host", "").strip()
+    token = st.session_state.get("sb_db_token", "").strip()
+    profile = st.session_state.get("sb_db_profile", "").strip()
+
+    if host:
+        os.environ["DATABRICKS_HOST"] = host
+    if token:
+        os.environ["DATABRICKS_TOKEN"] = token
+    if profile:
+        os.environ["DATABRICKS_CONFIG_PROFILE"] = profile
+
+
+def test_databricks_workspace_connection(host: str, token: str, profile: str = "") -> tuple[bool, str]:
+    """Validate the provided Databricks host and PAT by listing workspace files."""
+    host = host.strip()
+    token = token.strip()
+    profile = profile.strip()
+
+    if not (host and token) and not profile:
+        return False, "Host and PAT are required for workspace validation unless a CLI profile is configured."
+
+    try:
+        if host and token:
+            client = DatabricksClient(host, token)
+        else:
+            client = DatabricksClient.from_app_context()
+
+        items = client.list_workspace_items("/")
+        if isinstance(items, dict) and items.get("error"):
+            return False, items["error"]
+        count = len(items) if isinstance(items, list) else 0
+        return True, f"Workspace validated successfully. Listed {count} item(s) at the root path."
+    except Exception as e:
+        return False, str(e)
+
+
+def test_databricks_cli_connection() -> tuple[bool, str]:
+    try:
+        result = subprocess.run(
+            ["databricks", "auth", "status"],
+            capture_output=True, text=True, timeout=30, env=get_env(),
+        )
+        if result.returncode == 0:
+            return True, result.stdout.strip() or "Databricks CLI is authenticated."
+        return False, result.stderr.strip() or result.stdout.strip() or "Unknown CLI error."
+    except FileNotFoundError:
+        return False, (
+            "`databricks` CLI not found in PATH. Install it:\n"
+            "curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh\n"
+            "databricks labs install lakebridge"
+        )
+    except subprocess.TimeoutExpired:
+        return False, "Databricks CLI connection test timed out after 30 seconds."
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -424,7 +735,7 @@ def extract_metrics(sheets: dict[str, pd.DataFrame]) -> dict:
     for sheet_name, df in sheets.items():
         if df.empty:
             continue
-        lower_cols = {c.lower(): c for c in df.columns}
+        lower_cols = {str(c).strip().lower(): c for c in df.columns}
 
         if "summary" in sheet_name.lower():
             for key in ("total_files", "file_count", "files", "total files"):
@@ -898,7 +1209,7 @@ if selected_page == "Get Started":
                     🔍 Analyze
                 </div>
                 <div style="font-size:0.85rem;color:#64748b;line-height:1.6;">
-                    Select your source technology, upload source files, and get a
+                    Select your source technology, upload source files or use Databricks workspace folder files, and get a
                     migration-readiness report — object inventory, function usage, SQL category breakdown.
                 </div>
             </div>
@@ -909,8 +1220,8 @@ if selected_page == "Get Started":
                     ⚡ Transpile
                 </div>
                 <div style="font-size:0.85rem;color:#64748b;line-height:1.6;">
-                    Select your source dialect, upload files, and download Databricks-compatible
-                    output — SQL, PySpark notebooks, or Workflow JSON.
+                    Select your source dialect, upload files either locally or from your Databricks workspace, and download Databricks-compatible
+                    output — SQL, PySpark notebooks, or Workflow JSON or you can write directly to your workspace folders.
                 </div>
             </div>
             <div style="border-left:1px solid #e2e8f0;padding-left:1.25rem;">
@@ -1109,58 +1420,174 @@ elif selected_page == "Analyzer":
         </div>
         """, unsafe_allow_html=True)
 
-        upload_mode = st.radio(
-            "Mode",
-            ["Individual files", "ZIP archive"],
-            horizontal=True,
-            label_visibility="collapsed",
-        )
-        is_zip = upload_mode == "ZIP archive"
+        tab1, tab2 = st.tabs(["📂 Upload Files", "☁️ Databricks Workspace"])
 
-        if is_zip:
-            raw = st.file_uploader(
-                "Drop your ZIP here",
-                type=["zip"],
+        uploaded_files = []
+        is_zip = False
+
+        # ==========================================================
+        # TAB 1 — FILE UPLOAD
+        # ==========================================================
+        with tab1:
+            upload_mode = st.radio(
+                "Mode",
+                ["Individual files", "ZIP archive"],
+                horizontal=True,
                 label_visibility="collapsed",
-                help="All files inside the ZIP will be extracted and analyzed.",
-            )
-            uploaded_files = [raw] if raw else []
-        else:
-            uploaded_files = st.file_uploader(
-                "Drop files here",
-                type=tech_exts,
-                accept_multiple_files=True,
-                label_visibility="collapsed",
-                help=f"Accepted: {', '.join('.' + e for e in tech_exts)}  —  Use ZIP mode for mixed types.",
             )
 
-        if uploaded_files:
-            total_kb = sum(f.size for f in uploaded_files) / 1024
-            st.markdown(f"""
-            <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;
-                        padding:0.85rem 1.1rem;margin-top:0.5rem;">
-                <div style="font-weight:700;color:#065f46;font-size:0.95rem;">
-                    ✅ {len(uploaded_files)} file(s) ready &nbsp;·&nbsp; {total_kb:.1f} KB
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            with st.expander("View uploaded files", expanded=False):
-                for f in uploaded_files:
-                    st.markdown(f"📄 `{f.name}` &nbsp; <span style='color:#9ca3af;font-size:0.8rem'>{f.size:,} bytes</span>", unsafe_allow_html=True)
-        else:
-            st.markdown(f"""
+            is_zip = upload_mode == "ZIP archive"
+
+            if is_zip:
+                raw = st.file_uploader("Drop ZIP", type=["zip"], label_visibility="collapsed")
+                uploaded_files = [raw] if raw else []
+            else:
+                uploaded_files = st.file_uploader(
+                    "Drop files",
+                    type=tech_exts,
+                    accept_multiple_files=True,
+                    label_visibility="collapsed",
+                )
+
+            if uploaded_files:
+                total_kb = sum(f.size for f in uploaded_files) / 1024
+                st.success(f"✅ {len(uploaded_files)} file(s) ready · {total_kb:.1f} KB")
+
+                with st.expander("View uploaded files"):
+                    for f in uploaded_files:
+                        st.markdown(f"📄 `{f.name}`")
+
+                st.session_state["source_mode"] = "upload"
+            else:
+                st.info("No files uploaded")
+
+        # ==========================================================
+        # TAB 2 — WORKSPACE
+        # ==========================================================
+        with tab2:
+            from modules.databricks_service import DatabricksClient
+
+            st.markdown("#### 🔗 Browse Databricks Workspace")
+
+            try:
+                dbx = DatabricksClient.from_app_context()
+
+                # ─────────────────────────────────────────
+                # INIT STATE
+                # ─────────────────────────────────────────
+                if "ws_path" not in st.session_state:
+                    st.session_state["ws_path"] = "/"
+                if "ws_selected_files" not in st.session_state:
+                    st.session_state["ws_selected_files"] = []
+                if "ws_items" not in st.session_state:
+                    st.session_state["ws_items"] = []
+                if "last_loaded_path" not in st.session_state:
+                    st.session_state["last_loaded_path"] = None
+
+                current_path = st.session_state["ws_path"]
+
+                # ─────────────────────────────────────────
+                # SHOW CURRENT PATH
+                # ─────────────────────────────────────────
+                st.text_input("Current Path", value=current_path, disabled=True, key="ws_current_path")
+
+                # ─────────────────────────────────────────
+                # AUTO LOAD (NO BUTTON NEEDED)
+                # ─────────────────────────────────────────
+                if (
+                    st.session_state.get("last_loaded_path") != current_path
+                ):
+                    items = dbx.list_workspace_items(current_path)
+
+                    if isinstance(items, dict) and "error" in items:
+                        st.error(items["error"])
+                        st.session_state["ws_items"] = []
+                    else:
+                        st.session_state["ws_items"] = items
+
+                    st.session_state["last_loaded_path"] = current_path
+
+                items = st.session_state.get("ws_items", [])
+
+                if items:
+                    dirs = [o for o in items if o.get("object_type") == "DIRECTORY"]
+                    files = [o for o in items if o.get("object_type") in ["NOTEBOOK", "FILE"]]
+
+                    # ─────────────────────────────────────────
+                    # BACK BUTTON
+                    # ─────────────────────────────────────────
+                    if current_path != "/":
+                        parent = "/".join(current_path.rstrip("/").split("/")[:-1]) or "/"
+                        if st.button("⬅️ Back", key="ws_back"):
+                            st.session_state["ws_path"] = parent
+                            st.session_state.pop("ws_items", None)
+                            st.session_state.pop("last_loaded_path", None)
+                            st.rerun()
+
+                    # ─────────────────────────────────────────
+                    # FOLDERS
+                    # ─────────────────────────────────────────
+                    if dirs:
+                        st.markdown("##### 📁 Folders")
+
+                        for obj in dirs:
+                            path = obj.get("path")
+                            name = path.rstrip("/").split("/")[-1]
+                            button_key = make_widget_key("dir", path)
+
+                            if st.button(f"📁 {name}", key=button_key):
+                                st.session_state["ws_path"] = path
+                                st.session_state.pop("ws_items", None)
+                                st.session_state.pop("last_loaded_path", None)
+                                st.rerun()
+                    # ─────────────────────────────────────────
+                    if files:
+                        st.markdown("##### 📄 Select files")
+
+                        selected_paths = set(st.session_state.get("ws_selected_files", []))
+                        for obj in files:
+                            path = obj.get("path")
+
+                            if any(path.lower().endswith(f".{ext}") for ext in tech_exts):
+                                checkbox_key = make_widget_key("ws", path)
+                                checked = st.checkbox(path, value=(path in selected_paths), key=checkbox_key)
+                                if checked:
+                                    selected_paths.add(path)
+                                else:
+                                    selected_paths.discard(path)
+
+                        st.session_state["ws_selected_files"] = sorted(selected_paths)
+
+                        if selected_paths:
+                            st.success(f"✅ {len(selected_paths)} file(s) selected")
+                            st.session_state["source_mode"] = "workspace"
+                        else:
+                            st.info("No files selected")
+
+                    else:
+                        st.info("No valid files in this folder")
+
+                else:
+                    st.info("No items found in this path")
+
+            except Exception as e:
+                st.error(f"Workspace error: {str(e)}")
+
+        # ==========================================================
+        # EMPTY STATE
+        # ==========================================================
+        if not uploaded_files and not st.session_state.get("ws_selected_files"):
+            st.markdown("""
             <div style="background:#fafafa;border:2px dashed #e5e7eb;border-radius:12px;
-                        padding:2rem 1.5rem;text-align:center;margin-top:0.5rem;color:#9ca3af;">
-                <div style="font-size:2rem;margin-bottom:0.5rem;">📂</div>
-                <div style="font-weight:600;color:#6b7280;margin-bottom:0.25rem;">No files selected yet</div>
-                <div style="font-size:0.82rem;">Use the uploader above to add your source files</div>
+                        padding:2rem;text-align:center;color:#9ca3af;">
+                <div style="font-size:2rem;">📂</div>
+                <div>No files selected yet</div>
             </div>
             """, unsafe_allow_html=True)
 
         st.markdown("""
-        <div style="font-size:0.78rem;color:#9ca3af;margin-top:0.75rem;line-height:1.5;">
-            💡 <strong>Tip:</strong> Use <em>ZIP archive</em> mode to upload entire folders
-            or mixed file types at once.
+        <div style="font-size:0.78rem;color:#9ca3af;margin-top:0.75rem;">
+            💡 Upload files or browse Databricks workspace
         </div>
         """, unsafe_allow_html=True)
 
@@ -1170,13 +1597,13 @@ elif selected_page == "Analyzer":
     _, btn_col, _ = st.columns([2, 1, 2])
     with btn_col:
         run_clicked = st.button(
-            "🚀  Run Analysis",
+            "🚀  Analyse",
             use_container_width=True,
-            disabled=not bool(uploaded_files),
+            disabled=not bool(uploaded_files or st.session_state.get("ws_selected_files")),
             key="run_analyze",
         )
 
-    if not uploaded_files:
+    if not uploaded_files and not st.session_state.get("ws_selected_files"):
         st.markdown(
             "<div style='text-align:center;color:#9ca3af;font-size:0.85rem;margin-top:0.25rem'>"
             "Upload at least one file to run the analysis."
@@ -1185,13 +1612,43 @@ elif selected_page == "Analyzer":
         )
 
     # ── ANALYSIS EXECUTION ────────────────────────────────────────────────────
-    if run_clicked and uploaded_files:
+    if run_clicked and (uploaded_files or st.session_state.get("ws_selected_files")):
         src_dir = out_dir = None
         try:
             with st.status("Running analysis…", expanded=True) as status:
-                st.write(f"📂 Preparing **{len(uploaded_files)}** file(s)…")
-                src_dir = save_uploaded_files(uploaded_files, is_zip)
+                source_mode = st.session_state.get("source_mode")
+
+                if source_mode == "workspace":
+                    ws_files = st.session_state.get("ws_selected_files", [])
+
+                    if not ws_files:
+                        st.error("No workspace files selected")
+                        st.stop()
+
+                    st.write(f"☁️ Preparing **{len(ws_files)}** workspace file(s)…")
+                    src_dir = fetch_workspace_files_to_local(ws_files)
+
+                elif source_mode == "upload":
+                    if not uploaded_files:
+                        st.error("No uploaded files found")
+                        st.stop()
+
+                    st.write(f"📂 Preparing **{len(uploaded_files)}** file(s)…")
+                    src_dir = save_uploaded_files(uploaded_files, is_zip)
+
+                else:
+                    st.error("No input source selected")
+                    st.stop()
+
+                # ─────────────────────────────────────────
+                # COMMON PROCESSING
+                # ─────────────────────────────────────────
                 n_files, n_bytes = count_files(src_dir)
+
+                if n_files == 0:
+                    st.error("No valid files found to analyze")
+                    st.stop()
+
                 st.write(f"&nbsp;&nbsp;→ {n_files} file(s) staged ({n_bytes/1024:.1f} KB)")
 
                 out_dir = tempfile.mkdtemp(prefix="lb_out_")
@@ -1203,7 +1660,7 @@ elif selected_page == "Analyzer":
                 elapsed = time.time() - t0
                 st.write(f"&nbsp;&nbsp;→ Completed in **{elapsed:.1f}s**")
 
-                report_ok = os.path.exists(out_file)
+                report_ok = os.path.exists(out_file) and is_valid_excel(out_file)
                 sql_reports = sorted(Path(out_dir).glob("*_SQL.xlsx"))
 
                 if report_ok:
@@ -1218,6 +1675,10 @@ elif selected_page == "Analyzer":
                 with st.expander("❗ Errors / warnings"):
                     st.code(stderr, language="text")
 
+            if not report_ok:
+                st.error("Lakebridge did not generate a valid Excel report.")
+                st.stop()
+                
             if report_ok:
                 main_sheets = read_excel_sheets(out_file)
 
@@ -1254,17 +1715,23 @@ elif selected_page == "Analyzer":
                 fn_chart = build_function_chart(main_sheets)
                 cat_chart = build_category_chart(main_sheets)
 
-                if fn_chart or cat_chart:
-                    ch1, ch2 = st.columns(2) if (fn_chart and cat_chart) else (st.columns(1)[0], None)
-                    if fn_chart:
-                        with (ch1 if cat_chart else st):
-                            st.markdown("**⚡ Top Functions by Usage**")
-                            st.altair_chart(fn_chart, use_container_width=True)
-                    if cat_chart and ch2:
-                        with ch2:
-                            st.markdown("**🗂️ SQL Script Categories**")
-                            st.altair_chart(cat_chart, use_container_width=True)
+                if fn_chart and cat_chart:
+                    ch1, ch2 = st.columns(2) 
+                    with ch1 :
+                        st.markdown("**⚡ Top Functions by Usage**")
+                        st.altair_chart(fn_chart, use_container_width=True)
+                    with ch2:
+                        st.markdown("**🗂️ SQL Script Categories**")
+                        st.altair_chart(cat_chart, use_container_width=True)
+                # Case 2: only function chart
+                elif fn_chart:
+                    st.markdown("**⚡ Top Functions by Usage**")
+                    st.altair_chart(fn_chart, use_container_width=True)
 
+                # Case 3: only category chart
+                elif cat_chart:
+                    st.markdown("**🗂️ SQL Script Categories**")
+                    st.altair_chart(cat_chart, use_container_width=True)
                 st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
                 dl_cols = st.columns(2) if sql_reports else st.columns([1, 2])
 
@@ -1275,6 +1742,7 @@ elif selected_page == "Analyzer":
                             data=fh.read(),
                             file_name=output_filename,
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="analysis_download_main",
                             use_container_width=True,
                         )
 
@@ -1286,6 +1754,7 @@ elif selected_page == "Analyzer":
                                 data=fh.read(),
                                 file_name=sql_reports[0].name,
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key="analysis_download_sql_sub",
                                 use_container_width=True,
                             )
 
@@ -1516,47 +1985,136 @@ elif selected_page == "Transpiler":
         )
         tp_is_zip = tp_mode == "ZIP archive"
 
-        if tp_is_zip:
-            tp_raw = st.file_uploader(
-                "Drop your ZIP here",
-                type=["zip"],
-                key="tp_zip_uploader",
-                label_visibility="collapsed",
-                help="ZIP will be extracted before transpiling.",
-            )
-            tp_files = [tp_raw] if tp_raw else []
-        else:
-            tp_files = st.file_uploader(
-                "Drop source files here",
-                type=dialect_exts,
-                accept_multiple_files=True,
-                key="tp_file_uploader",
-                label_visibility="collapsed",
-                help=f"Accepted: {', '.join('.' + e for e in dialect_exts)}",
-            )
+        if "tp_ws_path" not in st.session_state:
+            st.session_state["tp_ws_path"] = "/"
+        if "tp_ws_selected_files" not in st.session_state:
+            st.session_state["tp_ws_selected_files"] = []
+        if "tp_ws_items" not in st.session_state:
+            st.session_state["tp_ws_items"] = []
+        if "tp_last_loaded_path" not in st.session_state:
+            st.session_state["tp_last_loaded_path"] = None
 
-        if tp_files:
-            tp_total_kb = sum(f.size for f in tp_files) / 1024
-            st.markdown(f"""
-            <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;
-                        padding:0.85rem 1.1rem;margin-top:0.5rem;">
-                <div style="font-weight:700;color:#065f46;font-size:0.95rem;">
-                    ✅ {len(tp_files)} file(s) ready &nbsp;·&nbsp; {tp_total_kb:.1f} KB
+        tab1, tab2 = st.tabs(["📂 Upload Files", "☁️ Databricks Workspace"])
+
+        tp_files = []
+
+        with tab1:
+            if tp_is_zip:
+                tp_raw = st.file_uploader(
+                    "Drop your ZIP here",
+                    type=["zip"],
+                    key="tp_zip_uploader",
+                    label_visibility="collapsed",
+                    help="ZIP will be extracted before transpiling.",
+                )
+                tp_files = [tp_raw] if tp_raw else []
+            else:
+                tp_files = st.file_uploader(
+                    "Drop source files here",
+                    type=dialect_exts,
+                    accept_multiple_files=True,
+                    key="tp_file_uploader",
+                    label_visibility="collapsed",
+                    help=f"Accepted: {', '.join('.' + e for e in dialect_exts)}",
+                )
+
+            if tp_files:
+                tp_total_kb = sum(f.size for f in tp_files) / 1024
+                st.markdown(f"""
+                <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;
+                            padding:0.85rem 1.1rem;margin-top:0.5rem;">
+                    <div style="font-weight:700;color:#065f46;font-size:0.95rem;">
+                        ✅ {len(tp_files)} file(s) ready · {tp_total_kb:.1f} KB
+                    </div>
                 </div>
-            </div>
-            """, unsafe_allow_html=True)
-            with st.expander("View uploaded files", expanded=False):
-                for f in tp_files:
-                    st.markdown(f"📄 `{f.name}` &nbsp; <span style='color:#9ca3af;font-size:0.8rem'>{f.size:,} bytes</span>", unsafe_allow_html=True)
-        else:
-            st.markdown("""
-            <div style="background:#fafafa;border:2px dashed #e5e7eb;border-radius:12px;
-                        padding:2rem 1.5rem;text-align:center;margin-top:0.5rem;color:#9ca3af;">
-                <div style="font-size:2rem;margin-bottom:0.5rem;">📂</div>
-                <div style="font-weight:600;color:#6b7280;margin-bottom:0.25rem;">No files selected yet</div>
-                <div style="font-size:0.82rem;">Upload source files to begin transpilation</div>
-            </div>
-            """, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
+                with st.expander("View uploaded files", expanded=False):
+                    for f in tp_files:
+                        st.markdown(f"📄 `{f.name}` &nbsp; <span style='color:#9ca3af;font-size:0.8rem'>{f.size:,} bytes</span>", unsafe_allow_html=True)
+                st.session_state["tp_source_mode"] = "upload"
+            else:
+                st.markdown("""
+                <div style="background:#fafafa;border:2px dashed #e5e7eb;border-radius:12px;
+                            padding:2rem 1.5rem;text-align:center;margin-top:0.5rem;color:#9ca3af;">
+                    <div style="font-size:2rem;margin-bottom:0.5rem;">📂</div>
+                    <div style="font-weight:600;color:#6b7280;margin-bottom:0.25rem;">No files selected yet</div>
+                    <div style="font-size:0.82rem;">Upload source files to begin transpilation</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+        with tab2:
+            from modules.databricks_service import DatabricksClient
+
+            st.markdown("#### 🔗 Browse Databricks Workspace")
+
+            try:
+                dbx = DatabricksClient.from_app_context()
+                current_path = st.session_state["tp_ws_path"]
+                st.text_input("Current Path", value=current_path, disabled=True)
+
+                if (
+                    "tp_ws_items" not in st.session_state
+                    or st.session_state.get("tp_last_loaded_path") != current_path
+                ):
+                    items = dbx.list_workspace_items(current_path)
+                    if isinstance(items, dict) and "error" in items:
+                        st.error(items["error"])
+                        st.session_state["tp_ws_items"] = []
+                    else:
+                        st.session_state["tp_ws_items"] = items
+                    st.session_state["tp_last_loaded_path"] = current_path
+
+                items = st.session_state.get("tp_ws_items", [])
+
+                if items:
+                    dirs = [o for o in items if o.get("object_type") == "DIRECTORY"]
+                    files = [o for o in items if o.get("object_type") in ["NOTEBOOK", "FILE"]]
+
+                    if current_path != "/":
+                        parent = "/".join(current_path.rstrip("/").split("/")[:-1]) or "/"
+                        if st.button("⬅️ Back", key="tp_back"):
+                            st.session_state["tp_ws_path"] = parent
+                            st.session_state.pop("tp_ws_items", None)
+                            st.session_state.pop("tp_last_loaded_path", None)
+                            st.rerun()
+
+                    if dirs:
+                        st.markdown("##### 📁 Folders")
+                        for obj in dirs:
+                            path = obj.get("path")
+                            name = path.rstrip("/").split("/")[-1]
+                            button_key = make_widget_key("tp_dir", path)
+                            if st.button(f"📁 {name}", key=button_key):
+                                st.session_state["tp_ws_path"] = path
+                                st.session_state.pop("tp_ws_items", None)
+                                st.session_state.pop("tp_last_loaded_path", None)
+                                st.rerun()
+
+                    if files:
+                        st.markdown("##### 📄 Select files")
+                        selected_paths = set(st.session_state.get("tp_ws_selected_files", []))
+                        for obj in files:
+                            path = obj.get("path")
+                            if any(path.lower().endswith(f".{ext}") for ext in dialect_exts):
+                                checkbox_key = make_widget_key("tp_ws", path)
+                                checked = st.checkbox(path, value=(path in selected_paths), key=checkbox_key)
+                                if checked:
+                                    selected_paths.add(path)
+                                else:
+                                    selected_paths.discard(path)
+
+                        st.session_state["tp_ws_selected_files"] = sorted(selected_paths)
+                        if selected_paths:
+                            st.success(f"✅ {len(selected_paths)} file(s) selected")
+                            st.session_state["tp_source_mode"] = "workspace"
+                        else:
+                            st.info("No files selected")
+                    else:
+                        st.info("No valid files in this folder")
+                else:
+                    st.info("No items found in this path")
+            except Exception as e:
+                st.error(f"Workspace error: {str(e)}")
 
         st.markdown("""
         <div style="font-size:0.78rem;color:#9ca3af;margin-top:0.75rem;line-height:1.5;">
@@ -1568,30 +2126,40 @@ elif selected_page == "Transpiler":
     # ── RUN BUTTON ────────────────────────────────────────────────────────────
     st.markdown("<hr class='section-sep'>", unsafe_allow_html=True)
 
+    tp_ws_selected_files = st.session_state.get("tp_ws_selected_files", [])
+    tp_has_source = bool(tp_files or tp_ws_selected_files)
+
     _, tp_btn_col, _ = st.columns([2, 1, 2])
     with tp_btn_col:
         tp_run = st.button(
             "⚡  Transpile Code",
-            use_container_width=True,
-            disabled=not bool(tp_files),
+            width="content",
+            disabled=not tp_has_source,
             key="run_transpile",
         )
 
-    if not tp_files:
+    if not tp_has_source:
         st.markdown(
             "<div style='text-align:center;color:#9ca3af;font-size:0.85rem;margin-top:0.25rem'>"
-            "Upload at least one source file to run transpilation."
+            "Upload at least one source file or select Databricks workspace files to run transpilation."
             "</div>",
             unsafe_allow_html=True,
         )
 
     # ── TRANSPILATION EXECUTION ───────────────────────────────────────────────
-    if tp_run and tp_files:
+    if tp_run and tp_has_source:
         tp_src_dir = tp_out_dir = None
+        clear_transpile_output_state()
         try:
             with st.status("Transpiling…", expanded=True) as tp_status:
-                st.write(f"📂 Preparing **{len(tp_files)}** file(s)…")
-                tp_src_dir = save_uploaded_files(tp_files, tp_is_zip)
+                if tp_files:
+                    st.write(f"📂 Preparing **{len(tp_files)}** file(s)…")
+                    tp_src_dir = save_uploaded_files(tp_files, tp_is_zip)
+                else:
+                    tp_ws_selected_files = st.session_state.get("tp_ws_selected_files", [])
+                    st.write(f"☁️ Preparing **{len(tp_ws_selected_files)}** workspace file(s)…")
+                    tp_src_dir = fetch_workspace_files_to_local(tp_ws_selected_files)
+
                 n_src, b_src = count_files(tp_src_dir)
                 st.write(f"&nbsp;&nbsp;→ {n_src} file(s) staged ({b_src/1024:.1f} KB)")
 
@@ -1639,6 +2207,20 @@ elif selected_page == "Transpiler":
                     tp_status.update(label="⚠️ No output files generated — check log below", state="error", expanded=True)
                 else:
                     tp_status.update(label="⚠️ Completed with warnings — see log below", state="complete", expanded=False)
+
+            st.session_state["tp_stdout"] = tp_stdout
+            st.session_state["tp_stderr"] = tp_stderr
+            store_transpile_output_state(tp_out_dir, {
+                "n_src": n_src,
+                "b_out": b_out,
+                "n_out": n_out,
+                "elapsed": elapsed,
+                "dialect_cli": dialect_cli,
+                "target_cli": target_cli,
+                "selected_dialect_name": selected_dialect_name,
+                "selected_target_label": selected_target_label,
+                "is_oozie": bool(dialect_info.get("oozie")),
+            })
 
             # ── Logs ─────────────────────────────────────────────────────────
             if tp_stdout:
@@ -1713,6 +2295,7 @@ elif selected_page == "Transpiler":
                         data=zip_bytes,
                         file_name=zip_name,
                         mime="application/zip",
+                        key="tp_download_all_output_inline",
                         use_container_width=True,
                     )
                 with info_col:
@@ -1724,6 +2307,29 @@ elif selected_page == "Transpiler":
                     """, unsafe_allow_html=True)
 
                 st.markdown("<div style='height:1.25rem'></div>", unsafe_allow_html=True)
+
+                st.session_state["tp_upload_dest"] = st.session_state.get("tp_upload_dest", "/Shared/transpiler_output")
+                upload_dest = st.text_input(
+                    "Upload output to Databricks workspace folder",
+                    value=st.session_state["tp_upload_dest"],
+                    key="tp_upload_dest",
+                    help="Enter the target Databricks workspace folder where transpiled files will be uploaded.",
+                )
+                if upload_dest and not upload_dest.startswith("/"):
+                    upload_dest = "/" + upload_dest
+                    st.session_state["tp_upload_dest"] = upload_dest
+
+                if st.button("📤  Upload All Output Files to Databricks", key="tp_upload_output", use_container_width=True):
+                    try:
+                        ok, upload_errors = upload_directory_to_workspace(tp_out_dir, upload_dest)
+                        if ok:
+                            st.success(f"✅ Uploaded {n_out} files to {upload_dest}")
+                        else:
+                            st.error("Upload failed. See details below.")
+                            for msg in upload_errors:
+                                st.write(f"- {msg}")
+                    except Exception as e:
+                        st.error(f"Upload error: {e}")
 
                 # File tree
                 st.markdown("**📂 Output File Tree**")
@@ -1770,11 +2376,16 @@ elif selected_page == "Transpiler":
                 )
 
         finally:
-            for d in (tp_src_dir,):
-                if d and os.path.exists(d):
-                    shutil.rmtree(d, ignore_errors=True)
-            # Note: tp_out_dir is kept in memory via zip_bytes; cleaned after download
-            # In production, a cleanup hook or time-based cleanup is recommended.
+            if tp_src_dir and os.path.exists(tp_src_dir):
+                shutil.rmtree(tp_src_dir, ignore_errors=True)
+
+    if (
+        selected_page == "Transpiler"
+        and not tp_run
+        and st.session_state.get("tp_out_dir")
+        and os.path.exists(st.session_state["tp_out_dir"])
+    ):
+        render_transpile_output_section()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1860,7 +2471,30 @@ elif selected_page == "Settings":
             placeholder="dapi…",
             help="Generate a token in Databricks → User Settings → Developer → Access Tokens.",
         )
+        status_col1, status_col2 = st.columns([1, 1], gap="large")
+        save_clicked = status_col1.button("💾 Save connection", key="save_db_connection")
+        test_workspace_clicked = status_col2.button("🔍 Test workspace connection", key="test_workspace_connection")
+        if save_clicked:
+            sync_databricks_env_from_session_state()
+            st.success("✅ Connection values saved for this session.")
+            st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+            st.caption(
+        "Credentials are held in session state only. "
+        "They are injected into the subprocess environment for Analyzer and Transpiler calls "
+        "and are not stored to disk or shared between users."
+                    )
 
+        if test_workspace_clicked:
+            sync_databricks_env_from_session_state()
+            host = st.session_state.get("sb_db_host", "").strip()
+            token = st.session_state.get("sb_db_token", "").strip()
+            profile = st.session_state.get("sb_db_profile", "").strip()
+            ok, message = test_databricks_workspace_connection(host, token, profile)
+            if ok:
+                st.success(f"✅ {message}")
+            else:
+                st.error(f"❌ {message}")
+                
         st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
         st.markdown("##### Option B — Named Profile")
         st.text_input(
@@ -1873,64 +2507,37 @@ elif selected_page == "Settings":
                 "Create profiles with: databricks configure --profile <name>"
             ),
         )
+        st.markdown("<div style='height:0.75rem'></div>", unsafe_allow_html=True)
+        if st.button("🧰 Test Databricks CLI connection", key="test_db_cli_connection"):
+            ok, message = test_databricks_cli_connection()
+            if ok:
+                st.success("✅ CLI connection test succeeded")
+                st.code(message, language="text")
+            else:
+                st.error("❌ CLI connection test failed")
+                st.code(message, language="text")
 
     with cfg_col2:
         st.markdown("##### How to get a Personal Access Token")
         st.markdown("""
-1. Open your Databricks workspace in a browser.
-2. Click your username (top right) → **Settings**.
-3. Go to **Developer** → **Access Tokens** → **Generate new token**.
-4. Give it a name and copy the token value — you won't see it again.
-5. Paste it in the **PAT** field on the left.
+            1. Open your Databricks workspace in a browser.
+            2. Click your username (top right) → **Settings**.
+            3. Go to **Developer** → **Access Tokens** → **Generate new token**.
+            4. Give it a name and copy the token value — you won't see it again.
+            5. Paste it in the **PAT** field on the left.
 
-##### How to configure a CLI profile
-```bash
-databricks configure --profile myprofile
-# Enter workspace URL and token when prompted
-```
-Then set **Profile** = `myprofile` on the left.
+            ##### How to configure a CLI profile
+            ```bash
+            databricks configure --profile myprofile
+            # Enter workspace URL and token when prompted
+            ```
+            Then set **Profile** = `myprofile` on the left.
 
-##### Azure / GCP / AWS
-SyrenBridge works with any Databricks workspace. The workspace URL format varies:
-- **Azure:** `https://adb-XXXX.XX.azuredatabricks.net`
-- **AWS:** `https://XXXX.cloud.databricks.com`
-- **GCP:** `https://XXXX.gcp.databricks.com`
-        """)
+            ##### Azure / GCP / AWS
+            SyrenBridge works with any Databricks workspace. The workspace URL format varies:
+            - **Azure:** `https://adb-XXXX.XX.azuredatabricks.net`
+            - **AWS:** `https://XXXX.cloud.databricks.com`
+            - **GCP:** `https://XXXX.gcp.databricks.com`
+                    """)
 
-    # ── Live status check ─────────────────────────────────────────────────────
-    st.markdown("---")
-    st.markdown("##### Connection Status")
-
-    if st.button("🔍 Test Databricks CLI connection", key="test_db_connection"):
-        test_env = get_env()
-        with st.spinner("Checking `databricks auth status`…"):
-            try:
-                result = subprocess.run(
-                    ["databricks", "auth", "status"],
-                    capture_output=True, text=True, timeout=30, env=test_env,
-                )
-                if result.returncode == 0:
-                    st.success("✅ Connection successful")
-                    st.code(result.stdout or "(no output)", language="text")
-                else:
-                    st.error("❌ Connection failed")
-                    st.code(result.stderr or result.stdout or "(no output)", language="text")
-            except FileNotFoundError:
-                st.error(
-                    "❌ `databricks` CLI not found in PATH.\n\n"
-                    "Install it:\n"
-                    "```bash\n"
-                    "curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh\n"
-                    "databricks labs install lakebridge\n"
-                    "```"
-                )
-            except subprocess.TimeoutExpired:
-                st.error("❌ Connection test timed out after 30 seconds.")
-
-    st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
-    st.caption(
-        "Credentials are held in session state only. "
-        "They are injected into the subprocess environment for Analyzer and Transpiler calls "
-        "and are not stored to disk or shared between users."
-    )
 
