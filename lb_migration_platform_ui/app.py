@@ -1976,14 +1976,7 @@ elif selected_page == "Transpiler":
         </div>
         """, unsafe_allow_html=True)
 
-        tp_mode = st.radio(
-            "Upload mode",
-            ["Individual files", "ZIP archive"],
-            horizontal=True,
-            key="tp_upload_mode",
-            label_visibility="collapsed",
-        )
-        tp_is_zip = tp_mode == "ZIP archive"
+        tp_is_zip = False
 
         if "tp_ws_path" not in st.session_state:
             st.session_state["tp_ws_path"] = "/"
@@ -1999,6 +1992,15 @@ elif selected_page == "Transpiler":
         tp_files = []
 
         with tab1:
+            tp_mode = st.radio(
+                "Upload mode",
+                ["Individual files", "ZIP archive"],
+                horizontal=True,
+                key="tp_upload_mode",
+                label_visibility="collapsed",
+            )
+            tp_is_zip = tp_mode == "ZIP archive"
+
             if tp_is_zip:
                 tp_raw = st.file_uploader(
                     "Drop your ZIP here",
