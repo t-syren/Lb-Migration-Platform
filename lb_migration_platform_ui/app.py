@@ -256,7 +256,7 @@ section[data-testid="stSidebar"] .stRadio label[data-checked="true"] {
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
 div[data-testid="stButton"] button {
-    background: #0f172a !important; color: #f1f5f9 !important;
+    background: #FF3621 !important; color: #f1f5f9 !important;
     border: none !important; border-radius: 8px !important;
     font-weight: 600 !important; font-size: 0.92rem !important;
     padding: 0.6rem 2rem !important;
@@ -306,8 +306,12 @@ div[data-testid="stButton"] button:disabled {
     background: #0f172a; color: #e2e8f0; border-radius: 10px;
     padding: 1rem 1.25rem; font-family: 'Courier New', monospace; font-size: 0.82rem;
     line-height: 1.7; max-height: 360px; overflow-y: auto;
+    width: 100%; max-width: 100%;
+    overflow-x: auto;
+    white-space: nowrap;  
+    word-break: break-word;        /* break long filenames */
 }
-.file-tree .dir  { color: #60a5fa; font-weight: 600; }
+.file-tree .dir  { color: #FF3621; font-weight: 600; }
 .file-tree .file { color: #86efac; }
 .file-tree .meta { color: #475569; }
 
@@ -437,6 +441,22 @@ def clear_transpile_output_state() -> None:
     st.session_state.pop("tp_output_info", None)
     if existing and os.path.exists(existing):
         shutil.rmtree(existing, ignore_errors=True)
+
+
+def clear_databricks_workspace_selection_state() -> None:
+    for key in [
+        "ws_selected_files",
+        "ws_items",
+        "ws_path",
+        "last_loaded_path",
+        "source_mode",
+        "tp_ws_selected_files",
+        "tp_ws_items",
+        "tp_ws_path",
+        "tp_last_loaded_path",
+        "tp_source_mode",
+    ]:
+        st.session_state.pop(key, None)
 
 
 def store_transpile_output_state(out_dir: str, info: dict) -> None:
@@ -624,54 +644,9 @@ def fetch_workspace_files_to_local(paths):
     return temp_dir
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CREDENTIALS HELPER
+# DATABRICKS CREDENTIALS HELPER
 # ══════════════════════════════════════════════════════════════════════════════
 
-# def get_env() -> dict:
-#     """Return os.environ with any user-supplied Databricks credentials injected.
-
-#     Values come from st.session_state keys set by the Settings tab:
-#       - sb_db_host   → DATABRICKS_HOST
-#       - sb_db_token  → DATABRICKS_TOKEN
-#     If the keys are empty or absent the existing environment values are used.
-#     """
-#     sync_databricks_env_from_session_state()
-#     env = os.environ.copy()
-
-#     host = st.session_state.get("sb_db_host")
-#     token = st.session_state.get("sb_db_token")
-
-#     if host is not None or token is not None:
-#         host_value = host.strip() if isinstance(host, str) else ""
-#         token_value = token.strip() if isinstance(token, str) else ""
-
-#         if host_value and token_value:
-#             env["DATABRICKS_HOST"] = host_value
-#             env["DATABRICKS_TOKEN"] = token_value
-#         else:
-#             env.pop("DATABRICKS_HOST", None)
-#             env.pop("DATABRICKS_TOKEN", None)
-
-#     return env
-
-
-# def sync_databricks_env_from_session_state() -> None:
-#     host = st.session_state.get("sb_db_host")
-#     token = st.session_state.get("sb_db_token")
-
-#     if host is not None:
-#         host_value = host.strip() if isinstance(host, str) else ""
-#         if host_value:
-#             os.environ["DATABRICKS_HOST"] = host_value
-#         else:
-#             os.environ.pop("DATABRICKS_HOST", None)
-
-#     if token is not None:
-#         token_value = token.strip() if isinstance(token, str) else ""
-#         if token_value:
-#             os.environ["DATABRICKS_TOKEN"] = token_value
-#         else:
-#             os.environ.pop("DATABRICKS_TOKEN", None)
 
 
 def test_databricks_workspace_connection(host: str, token: str) -> tuple[bool, str]:
@@ -1505,7 +1480,7 @@ elif selected_page == "Analyzer":
         with tab2:
             from modules.databricks_service import DatabricksClient
 
-            st.markdown("#### 🔗 Browse Databricks Workspace")
+            st.markdown("#### 🔗 Browse Workspace")
 
             try:
                 dbx = DatabricksClient.from_app_context()
@@ -1547,72 +1522,75 @@ elif selected_page == "Analyzer":
 
                 items = st.session_state.get("ws_items", [])
 
-                if items:
-                    st.markdown(
-                        "<div style='max-height:40vh;overflow-y:auto;padding:0.5rem 0.5rem 0.25rem 0.5rem;"
-                        "border:1px solid #e5e7eb;border-radius:10px;background:#ffffff;'>",
-                        unsafe_allow_html=True,
-                    )
-
-                    dirs = [o for o in items if o.get("object_type") == "DIRECTORY"]
-                    files = [o for o in items if o.get("object_type") in ["NOTEBOOK", "FILE"]]
-
-                    # ─────────────────────────────────────────
-                    # BACK BUTTON
-                    # ─────────────────────────────────────────
-                    if current_path != "/":
-                        parent = "/".join(current_path.rstrip("/").split("/")[:-1]) or "/"
+                # Show navigation buttons if not at root
+                if current_path != "/":
+                    parent = "/".join(current_path.rstrip("/").split("/")[:-1]) or "/"
+                    back_col, home_col = st.columns([1, 1], gap="small")
+                    with back_col:
                         if st.button("⬅️ Back", key="ws_back"):
                             st.session_state["ws_path"] = parent
                             st.session_state.pop("ws_items", None)
                             st.session_state.pop("last_loaded_path", None)
                             st.rerun()
+                    with home_col:
+                        if st.button("🏠 Home", key="ws_home"):
+                            st.session_state["ws_path"] = "/"
+                            st.session_state.pop("ws_items", None)
+                            st.session_state.pop("last_loaded_path", None)
+                            st.rerun()
 
-                    # ─────────────────────────────────────────
-                    # FOLDERS
-                    # ─────────────────────────────────────────
-                    if dirs:
-                        st.markdown("##### 📁 Folders")
+                if items:
+                    dirs = [o for o in items if o.get("object_type") == "DIRECTORY"]
+                    files = [o for o in items if o.get("object_type") in ["NOTEBOOK", "FILE"]]
 
-                        for obj in dirs:
-                            path = obj.get("path")
-                            name = path.rstrip("/").split("/")[-1]
-                            button_key = make_widget_key("dir", path)
+                    # 🔥 REAL SCROLL CONTAINER
+                    container = st.container(height=350)
 
-                            if st.button(f"📁 {name}", key=button_key):
-                                st.session_state["ws_path"] = path
-                                st.session_state.pop("ws_items", None)
-                                st.session_state.pop("last_loaded_path", None)
-                                st.rerun()
+                    with container:
+                        # ─────────────────────────────────────────
+                        # FOLDERS
+                        # ─────────────────────────────────────────
+                        if dirs:
+                            st.markdown("##### 📁 Folders")
 
-                    # ─────────────────────────────────────────
-                    if files:
-                        st.markdown("##### 📄 Select files")
+                            for obj in dirs:
+                                path = obj.get("path")
+                                name = path.rstrip("/").split("/")[-1]
+                                button_key = make_widget_key("dir", path)
 
-                        selected_paths = set(st.session_state.get("ws_selected_files", []))
-                        for obj in files:
-                            path = obj.get("path")
+                                if st.button(f"📁 {name}", key=button_key):
+                                    st.session_state["ws_path"] = path
+                                    st.session_state.pop("ws_items", None)
+                                    st.session_state.pop("last_loaded_path", None)
+                                    st.rerun()
 
-                            if any(path.lower().endswith(f".{ext}") for ext in tech_exts):
-                                checkbox_key = make_widget_key("ws", path)
-                                checked = st.checkbox(path, value=(path in selected_paths), key=checkbox_key)
-                                if checked:
-                                    selected_paths.add(path)
-                                else:
-                                    selected_paths.discard(path)
+                    # ─────────────────── files ──────────────────────
+                        if files:
+                            st.markdown("##### 📄 Select files")
 
-                        st.session_state["ws_selected_files"] = sorted(selected_paths)
+                            selected_paths = set(st.session_state.get("ws_selected_files", []))
+                            for obj in files:
+                                path = obj.get("path")
 
-                        if selected_paths:
-                            st.success(f"✅ {len(selected_paths)} file(s) selected")
-                            st.session_state["source_mode"] = "workspace"
+                                if any(path.lower().endswith(f".{ext}") for ext in tech_exts):
+                                    checkbox_key = make_widget_key("ws", path)
+                                    checked = st.checkbox(path, value=(path in selected_paths), key=checkbox_key)
+                                    if checked:
+                                        selected_paths.add(path)
+                                    else:
+                                        selected_paths.discard(path)
+
+                            st.session_state["ws_selected_files"] = sorted(selected_paths)
+
+                            if selected_paths:
+                                st.success(f"✅ {len(selected_paths)} file(s) selected")
+                                st.session_state["source_mode"] = "workspace"
+                            else:
+                                st.info("No files selected")
+
                         else:
-                            st.info("No files selected")
+                            st.info("No valid files in this folder")
 
-                    else:
-                        st.info("No valid files in this folder")
-
-                    st.markdown("</div>", unsafe_allow_html=True)
                 else:
                     st.info("No items found in this path")
 
@@ -1716,14 +1694,18 @@ elif selected_page == "Analyzer":
 
             if stdout:
                 with st.expander("📋 Full analysis log"):
-                    st.markdown("<div class='output-block'>", unsafe_allow_html=True)
-                    st.code(stdout, language="text")
-                    st.markdown("</div>", unsafe_allow_html=True)
+                    log_container = st.container(height=400)
+                    with log_container:
+                        st.markdown("<div class='output-block'>", unsafe_allow_html=True)
+                        st.code(stdout, language="text")
+                        st.markdown("</div>", unsafe_allow_html=True)
             if stderr and not ok:
                 with st.expander("❗ Errors / warnings"):
-                    st.markdown("<div class='output-block'>", unsafe_allow_html=True)
-                    st.code(stderr, language="text")
-                    st.markdown("</div>", unsafe_allow_html=True)
+                    error_container = st.container(height=400)
+                    with error_container:
+                        st.markdown("<div class='output-block'>", unsafe_allow_html=True)
+                        st.code(stderr, language="text")
+                        st.markdown("</div>", unsafe_allow_html=True)
 
             if not report_ok:
                 st.error("Lakebridge did not generate a valid Excel report.")
@@ -2097,7 +2079,7 @@ elif selected_page == "Transpiler":
         with tab2:
             from modules.databricks_service import DatabricksClient
 
-            st.markdown("#### 🔗 Browse Databricks Workspace")
+            st.markdown("#### 🔗 Browse Workspace")
 
             try:
                 dbx = DatabricksClient.from_app_context()
@@ -2118,59 +2100,65 @@ elif selected_page == "Transpiler":
 
                 items = st.session_state.get("tp_ws_items", [])
 
-                if items:
-                    st.markdown(
-                        "<div style='max-height:40vh;overflow-y:auto;padding:0.5rem 0.5rem 0.25rem 0.5rem;"
-                        "border:1px solid #e5e7eb;border-radius:10px;background:#ffffff;'>",
-                        unsafe_allow_html=True,
-                    )
-
-                    dirs = [o for o in items if o.get("object_type") == "DIRECTORY"]
-                    files = [o for o in items if o.get("object_type") in ["NOTEBOOK", "FILE"]]
-
-                    if current_path != "/":
-                        parent = "/".join(current_path.rstrip("/").split("/")[:-1]) or "/"
+                # Show navigation buttons if not at root
+                if current_path != "/":
+                    parent = "/".join(current_path.rstrip("/").split("/")[:-1]) or "/"
+                    back_col, home_col = st.columns([1, 1], gap="small")
+                    with back_col:
                         if st.button("⬅️ Back", key="tp_back"):
                             st.session_state["tp_ws_path"] = parent
                             st.session_state.pop("tp_ws_items", None)
                             st.session_state.pop("tp_last_loaded_path", None)
                             st.rerun()
+                    with home_col:
+                        if st.button("🏠 Home", key="tp_home"):
+                            st.session_state["tp_ws_path"] = "/"
+                            st.session_state.pop("tp_ws_items", None)
+                            st.session_state.pop("tp_last_loaded_path", None)
+                            st.rerun()
 
-                    if dirs:
-                        st.markdown("##### 📁 Folders")
-                        for obj in dirs:
-                            path = obj.get("path")
-                            name = path.rstrip("/").split("/")[-1]
-                            button_key = make_widget_key("tp_dir", path)
-                            if st.button(f"📁 {name}", key=button_key):
-                                st.session_state["tp_ws_path"] = path
-                                st.session_state.pop("tp_ws_items", None)
-                                st.session_state.pop("tp_last_loaded_path", None)
-                                st.rerun()
+                if items:
+                    dirs = [o for o in items if o.get("object_type") == "DIRECTORY"]
+                    files = [o for o in items if o.get("object_type") in ["NOTEBOOK", "FILE"]]
 
-                    if files:
-                        st.markdown("##### 📄 Select files")
-                        selected_paths = set(st.session_state.get("tp_ws_selected_files", []))
-                        for obj in files:
-                            path = obj.get("path")
-                            if any(path.lower().endswith(f".{ext}") for ext in dialect_exts):
-                                checkbox_key = make_widget_key("tp_ws", path)
-                                checked = st.checkbox(path, value=(path in selected_paths), key=checkbox_key)
-                                if checked:
-                                    selected_paths.add(path)
-                                else:
-                                    selected_paths.discard(path)
+                    # 🔥 REAL SCROLL CONTAINER
+                    container = st.container(height=350)
 
-                        st.session_state["tp_ws_selected_files"] = sorted(selected_paths)
-                        if selected_paths:
-                            st.success(f"✅ {len(selected_paths)} file(s) selected")
-                            st.session_state["tp_source_mode"] = "workspace"
+                    with container:
+                        if dirs:
+                            st.markdown("##### 📁 Folders")
+                            for obj in dirs:
+                                path = obj.get("path")
+                                name = path.rstrip("/").split("/")[-1]
+                                button_key = make_widget_key("tp_dir", path)
+                                if st.button(f"📁 {name}", key=button_key):
+                                    st.session_state["tp_ws_path"] = path
+                                    st.session_state.pop("tp_ws_items", None)
+                                    st.session_state.pop("tp_last_loaded_path", None)
+                                    st.rerun()
+
+                        if files:
+                            st.markdown("##### 📄 Select files")
+                            selected_paths = set(st.session_state.get("tp_ws_selected_files", []))
+                            for obj in files:
+                                path = obj.get("path")
+                                if any(path.lower().endswith(f".{ext}") for ext in dialect_exts):
+                                    checkbox_key = make_widget_key("tp_ws", path)
+                                    checked = st.checkbox(path, value=(path in selected_paths), key=checkbox_key)
+                                    if checked:
+                                        selected_paths.add(path)
+                                    else:
+                                        selected_paths.discard(path)
+
+                            st.session_state["tp_ws_selected_files"] = sorted(selected_paths)
+                            if selected_paths:
+                                st.success(f"✅ {len(selected_paths)} file(s) selected")
+                                st.session_state["tp_source_mode"] = "workspace"
+                            else:
+                                st.info("No files selected")
                         else:
-                            st.info("No files selected")
-                    else:
-                        st.info("No valid files in this folder")
+                            st.info("No valid files in this folder")
 
-                    st.markdown("</div>", unsafe_allow_html=True)
                 else:
                     st.info("No items found in this path")
             except Exception as e:
@@ -2285,14 +2273,18 @@ elif selected_page == "Transpiler":
             # ── Logs ─────────────────────────────────────────────────────────
             if tp_stdout:
                 with st.expander("📋 Transpiler output log"):
-                    st.markdown("<div class='output-block'>", unsafe_allow_html=True)
-                    st.code(tp_stdout, language="text")
-                    st.markdown("</div>", unsafe_allow_html=True)
+                    tp_log_container = st.container(height=400)
+                    with tp_log_container:
+                        st.markdown("<div class='output-block'>", unsafe_allow_html=True)
+                        st.code(tp_stdout, language="text")
+                        st.markdown("</div>", unsafe_allow_html=True)
             if tp_stderr and not tp_ok:
                 with st.expander("❗ Errors / warnings"):
-                    st.markdown("<div class='output-block'>", unsafe_allow_html=True)
-                    st.code(tp_stderr, language="text")
-                    st.markdown("</div>", unsafe_allow_html=True)
+                    tp_error_container = st.container(height=400)
+                    with tp_error_container:
+                        st.markdown("<div class='output-block'>", unsafe_allow_html=True)
+                        st.code(tp_stderr, language="text")
+                        st.markdown("</div>", unsafe_allow_html=True)
 
             # ── Results ──────────────────────────────────────────────────────
             if n_out > 0:
@@ -2505,67 +2497,64 @@ elif selected_page == "Settings":
     st.markdown("---")
 
     # ── Credential form ───────────────────────────────────────────────────────
-    cfg_col1, cfg_col2 = st.columns([3, 2], gap="large")
+    # cfg_col1, cfg_col2 = st.columns([3, 2], gap="large")
 
-    with cfg_col1:
-        st.markdown("##### Option A — Host + Token (recommended for local use)")
+    # with cfg_col1:
+    st.markdown("##### Connection Details — Host + Token ")
 
-        st.text_input(
-            "Databricks Workspace URL",
-            key="sb_db_host",
-            placeholder="https://adb-XXXXXXXXXXXX.XX.azuredatabricks.net",
-            help="The full URL of your Databricks workspace, e.g. https://adb-1234567890.1.azuredatabricks.net",
+    st.text_input(
+        "Databricks Workspace URL",
+        key="sb_db_host",
+        placeholder="https://adb-XXXXXXXXXXXX.XX.azuredatabricks.net",
+        help="The full URL of your Databricks workspace, e.g. https://adb-xxxxxxxxxx.xx.azuredatabricks.net",
+    )
+
+    st.text_input(
+        "Personal Access Token (PAT)",
+        key="sb_db_token",
+        type="password",
+        placeholder="dapiXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+        help="Generate a token in Databricks → User Settings → Developer → Access Tokens.",
+    )
+    status_col1, status_col2 = st.columns([1, 1], gap="large")
+    save_clicked = status_col1.button("💾 Save connection", key="save_db_connection")
+    test_workspace_clicked = status_col2.button("🔍 Test workspace connection", key="test_workspace_connection")
+    if save_clicked:
+        try:
+            set_databricks_env(st.session_state.get("sb_db_host"),
+            st.session_state.get("sb_db_token"))
+            clear_databricks_workspace_selection_state()
+            st.success("✅ Connection configured successfully")
+            st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+            st.caption(
+            "Credentials are held in session state only. "
+            "They are injected into the subprocess environment for Analyzer and Transpiler calls "
+            "and are not stored to disk or shared between users."
         )
+        except ValueError as e:
+            st.error(str(e))
+        # sync_databricks_env_from_session_state()
+        
 
-        st.text_input(
-            "Personal Access Token (PAT)",
-            key="sb_db_token",
-            type="password",
-            placeholder="dapi…",
-            help="Generate a token in Databricks → User Settings → Developer → Access Tokens.",
-        )
-        status_col1, status_col2 = st.columns([1, 1], gap="large")
-        save_clicked = status_col1.button("💾 Save connection", key="save_db_connection")
-        test_workspace_clicked = status_col2.button("🔍 Test workspace connection", key="test_workspace_connection")
-        if save_clicked:
-            try:
-                set_databricks_env(st.session_state.get("sb_db_host"),
-                st.session_state.get("sb_db_token"))
-                st.success("✅ Connection configured successfully")
-                st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
-                st.caption(
-                "Credentials are held in session state only. "
-                "They are injected into the subprocess environment for Analyzer and Transpiler calls "
-                "and are not stored to disk or shared between users."
-            )
-            except ValueError as e:
-                st.error(str(e))
-            # sync_databricks_env_from_session_state()
-            
+    if test_workspace_clicked:
+        # sync_databricks_env_from_session_state()
+        host = st.session_state.get("sb_db_host", "").strip()
+        token = st.session_state.get("sb_db_token", "").strip()
+        ok, message = test_databricks_workspace_connection(host, token)
+        if ok:
+            st.success(f"✅ {message}")
+        else:
+            st.error(f"❌ {message}")
 
-        if test_workspace_clicked:
-            # sync_databricks_env_from_session_state()
-            host = st.session_state.get("sb_db_host", "").strip()
-            token = st.session_state.get("sb_db_token", "").strip()
-            ok, message = test_databricks_workspace_connection(host, token)
-            if ok:
-                st.success(f"✅ {message}")
-            else:
-                st.error(f"❌ {message}")
-
-        st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
-        st.markdown(
-            """
-            3. Go to **Developer** → **Access Tokens** → **Generate new token**.
-            4. Give it a name and copy the token value — you won't see it again.
-            5. Paste it in the **PAT** field on the left.
-
-            ##### Azure / GCP / AWS
-            SyrenBridge works with any Databricks workspace. The workspace URL format varies:
-            - **Azure:** `https://adb-XXXX.XX.azuredatabricks.net`
-            - **AWS:** `https://XXXX.cloud.databricks.com`
-            - **GCP:** `https://XXXX.gcp.databricks.com`
-            """
-        )
+    st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
+    st.markdown(
+        """
+        ##### Azure / GCP / AWS
+        SyrenBridge works with any Databricks workspace. The workspace URL format varies:
+        - **Azure:** `https://adb-XXXX.XX.azuredatabricks.net`
+        - **AWS:** `https://XXXX.cloud.databricks.com`
+        - **GCP:** `https://XXXX.gcp.databricks.com`
+        """
+    )
 
 

@@ -11,6 +11,10 @@ SyrenBridge is a Streamlit app (deployed on Databricks Apps) that wraps **Databr
 - The Analyzer tab calls `lakebridge analyze` (36 supported source technologies).
 - The Transpiler tab calls `lakebridge transpile` for 10 CLI-backed dialects, plus two custom engines (HiveSQL and Oozie) that bypass the CLI entirely.
 
+Transpiler execution paths:
+1. CLI-backed dialects → `run_transpiler()` (Databricks Lakebridge)
+2. HiveSQL → `run_hive_transpiler()` (sqlglot-based, in-process)
+3. Oozie → `run_oozie_converter()` (lxml-based workflow conversion)
 ---
 
 ## Two Custom Engines (Built Here, Not in Lakebridge)
@@ -38,7 +42,7 @@ The app has 4 tabs: `tab_start`, `tab_analyze`, `tab_transpile`, `tab_settings`.
 - `tab_start` — Get Started documentation (no state dependencies)
 - `tab_analyze` — Analyzer (calls Lakebridge CLI)
 - `tab_transpile` — Transpiler (Lakebridge CLI / custom engines)
-- `tab_settings` — Credentials form; writes to `st.session_state` keys `sb_db_host`, `sb_db_token`, `sb_db_profile`
+- `tab_settings` — Credentials form; writes to `st.session_state` keys `sb_db_host`, `sb_db_token`
 
 Both Analyzer and Transpiler now support Databricks workspace browsing as an alternative source input path. Each uses a `📂 Upload Files` / `☁️ Databricks Workspace` tabbed UI:
 
@@ -46,8 +50,13 @@ Both Analyzer and Transpiler now support Databricks workspace browsing as an alt
 - `Databricks Workspace` lets users navigate folders, select workspace files, and fetch them locally for analysis/transpilation.
 - Transpiler also supports uploading converted output files back into a target Databricks workspace folder.
 
-Credentials flow: Settings tab → `st.session_state` → `get_env()` → `subprocess.run(env=get_env())`.
-The `get_env()` function (defined before the helper section) overlays session credentials on top of `os.environ`.
+Credentials flow:
+- Credentials are stored in `st.session_state` (`sb_db_host`, `sb_db_token`)
+- Fallback to environment variables (`DATABRICKS_HOST`, `DATABRICKS_TOKEN`)
+- Unified resolution via `get_databricks_credentials()`
+- Used by:
+  - `DatabricksClient.from_app_context()` for API calls
+  - CLI calls via `os.environ` injection
 
 ## Key Architecture Rules
 
@@ -70,7 +79,6 @@ The app now includes first-class Databricks workspace support in both Analyzer a
 
 These features make it possible to source files directly from Databricks and publish converted results back into the workspace without leaving the app.
 
----
 
 ## Running Locally
 
