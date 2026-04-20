@@ -311,6 +311,12 @@ div[data-testid="stButton"] button:disabled {
 .file-tree .file { color: #86efac; }
 .file-tree .meta { color: #475569; }
 
+.output-block {
+    background: #0f172a; border: 1px solid #334155; border-radius: 0.85rem;
+    padding: 0.85rem; max-height: 42vh; overflow-y: auto;
+    white-space: pre-wrap; word-break: break-word;
+}
+
 /* ── Info box ────────────────────────────────────────────────────────────── */
 .info-box {
     background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;
@@ -367,6 +373,16 @@ def _workspace_language_for_path(path: str) -> str:
     if ext in {".json", ".yaml", ".yml", ".txt", ".md", ".csv"}:
         return "PYTHON"
     return "PYTHON"
+
+def set_databricks_env(host: str, token: str):
+    host = (host or "").strip()
+    token = (token or "").strip()
+
+    if not host or not token:
+        raise ValueError("Both Databricks Host and PAT are required")
+
+    os.environ["DATABRICKS_HOST"] = host
+    os.environ["DATABRICKS_TOKEN"] = token
 
 
 def _ensure_workspace_folder(client: DatabricksClient, folder_path: str) -> None:
@@ -611,57 +627,63 @@ def fetch_workspace_files_to_local(paths):
 # CREDENTIALS HELPER
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_env() -> dict:
-    """Return os.environ with any user-supplied Databricks credentials injected.
+# def get_env() -> dict:
+#     """Return os.environ with any user-supplied Databricks credentials injected.
 
-    Values come from st.session_state keys set by the Settings tab:
-      - sb_db_host   → DATABRICKS_HOST
-      - sb_db_token  → DATABRICKS_TOKEN
-      - sb_db_profile → DATABRICKS_CONFIG_PROFILE
-    If the keys are empty or absent the existing environment values are used.
-    """
-    sync_databricks_env_from_session_state()
-    env = os.environ.copy()
-    host = st.session_state.get("sb_db_host", "").strip()
-    token = st.session_state.get("sb_db_token", "").strip()
-    profile = st.session_state.get("sb_db_profile", "").strip()
-    if host:
-        env["DATABRICKS_HOST"] = host
-    if token:
-        env["DATABRICKS_TOKEN"] = token
-    if profile:
-        env["DATABRICKS_CONFIG_PROFILE"] = profile
-    return env
+#     Values come from st.session_state keys set by the Settings tab:
+#       - sb_db_host   → DATABRICKS_HOST
+#       - sb_db_token  → DATABRICKS_TOKEN
+#     If the keys are empty or absent the existing environment values are used.
+#     """
+#     sync_databricks_env_from_session_state()
+#     env = os.environ.copy()
 
+#     host = st.session_state.get("sb_db_host")
+#     token = st.session_state.get("sb_db_token")
 
-def sync_databricks_env_from_session_state() -> None:
-    host = st.session_state.get("sb_db_host", "").strip()
-    token = st.session_state.get("sb_db_token", "").strip()
-    profile = st.session_state.get("sb_db_profile", "").strip()
+#     if host is not None or token is not None:
+#         host_value = host.strip() if isinstance(host, str) else ""
+#         token_value = token.strip() if isinstance(token, str) else ""
 
-    if host:
-        os.environ["DATABRICKS_HOST"] = host
-    if token:
-        os.environ["DATABRICKS_TOKEN"] = token
-    if profile:
-        os.environ["DATABRICKS_CONFIG_PROFILE"] = profile
+#         if host_value and token_value:
+#             env["DATABRICKS_HOST"] = host_value
+#             env["DATABRICKS_TOKEN"] = token_value
+#         else:
+#             env.pop("DATABRICKS_HOST", None)
+#             env.pop("DATABRICKS_TOKEN", None)
+
+#     return env
 
 
-def test_databricks_workspace_connection(host: str, token: str, profile: str = "") -> tuple[bool, str]:
+# def sync_databricks_env_from_session_state() -> None:
+#     host = st.session_state.get("sb_db_host")
+#     token = st.session_state.get("sb_db_token")
+
+#     if host is not None:
+#         host_value = host.strip() if isinstance(host, str) else ""
+#         if host_value:
+#             os.environ["DATABRICKS_HOST"] = host_value
+#         else:
+#             os.environ.pop("DATABRICKS_HOST", None)
+
+#     if token is not None:
+#         token_value = token.strip() if isinstance(token, str) else ""
+#         if token_value:
+#             os.environ["DATABRICKS_TOKEN"] = token_value
+#         else:
+#             os.environ.pop("DATABRICKS_TOKEN", None)
+
+
+def test_databricks_workspace_connection(host: str, token: str) -> tuple[bool, str]:
     """Validate the provided Databricks host and PAT by listing workspace files."""
     host = host.strip()
     token = token.strip()
-    profile = profile.strip()
 
-    if not (host and token) and not profile:
-        return False, "Host and PAT are required for workspace validation unless a CLI profile is configured."
+    if not (host and token):
+        return False, "Host and PAT are required for workspace validation."
 
     try:
-        if host and token:
-            client = DatabricksClient(host, token)
-        else:
-            client = DatabricksClient.from_app_context()
-
+        client = DatabricksClient(host, token)
         items = client.list_workspace_items("/")
         if isinstance(items, dict) and items.get("error"):
             return False, items["error"]
@@ -672,10 +694,14 @@ def test_databricks_workspace_connection(host: str, token: str, profile: str = "
 
 
 def test_databricks_cli_connection() -> tuple[bool, str]:
+    env = os.environ.copy()
+    if not env.get("DATABRICKS_HOST") or not env.get("DATABRICKS_TOKEN"):
+        return False, "Host and PAT are required to test the Databricks CLI connection."
+
     try:
         result = subprocess.run(
             ["databricks", "auth", "status"],
-            capture_output=True, text=True, timeout=30, env=get_env(),
+            capture_output=True, text=True, timeout=30, env=env,
         )
         if result.returncode == 0:
             return True, result.stdout.strip() or "Databricks CLI is authenticated."
@@ -696,11 +722,15 @@ def test_databricks_cli_connection() -> tuple[bool, str]:
 
 def run_lakebridge(src: str, out: str, tech: int) -> tuple[bool, str, str]:
     payload = f"{src}\n{out}\n{tech}\n"
+    env = os.environ.copy()
+    if not env.get("DATABRICKS_HOST") or not env.get("DATABRICKS_TOKEN"):
+        return False, "", "Host and PAT are required to run Lakebridge. Set them in Settings or via environment variables."
+
     try:
         proc = subprocess.run(
             ["databricks", "labs", "lakebridge", "analyze"],
             input=payload, capture_output=True, text=True,
-            timeout=600, env=get_env(),
+            timeout=600, env=env,
         )
         return proc.returncode == 0 or os.path.exists(out), proc.stdout, proc.stderr
     except subprocess.TimeoutExpired:
@@ -888,7 +918,7 @@ def run_transpiler(
         proc = subprocess.run(
             cmd,
             capture_output=True, text=True,
-            timeout=600, env=get_env(),
+            timeout=600, env=os.environ.copy(),
         )
         ok = proc.returncode == 0 or any(Path(out_dir).rglob("*"))
         return ok, proc.stdout, proc.stderr
@@ -1105,6 +1135,14 @@ def build_file_tree_html(directory: str) -> tuple[str, int, int]:
             )
     return "<br>".join(lines) if lines else '<span class="meta">No files found.</span>', total_files, total_bytes
 
+def classify_error(stderr: str):
+    if "Invalid value for '--source-dialect'" in stderr:
+        return "UNSUPPORTED_DIALECT"
+    if "No such file or directory" in stderr:
+        return "INPUT_PATH_ERROR"
+    if "authentication" in stderr.lower():
+        return "AUTH_ERROR"
+    return "UNKNOWN"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SIDEBAR NAVIGATION
@@ -1510,6 +1548,12 @@ elif selected_page == "Analyzer":
                 items = st.session_state.get("ws_items", [])
 
                 if items:
+                    st.markdown(
+                        "<div style='max-height:40vh;overflow-y:auto;padding:0.5rem 0.5rem 0.25rem 0.5rem;"
+                        "border:1px solid #e5e7eb;border-radius:10px;background:#ffffff;'>",
+                        unsafe_allow_html=True,
+                    )
+
                     dirs = [o for o in items if o.get("object_type") == "DIRECTORY"]
                     files = [o for o in items if o.get("object_type") in ["NOTEBOOK", "FILE"]]
 
@@ -1540,6 +1584,7 @@ elif selected_page == "Analyzer":
                                 st.session_state.pop("ws_items", None)
                                 st.session_state.pop("last_loaded_path", None)
                                 st.rerun()
+
                     # ─────────────────────────────────────────
                     if files:
                         st.markdown("##### 📄 Select files")
@@ -1567,6 +1612,7 @@ elif selected_page == "Analyzer":
                     else:
                         st.info("No valid files in this folder")
 
+                    st.markdown("</div>", unsafe_allow_html=True)
                 else:
                     st.info("No items found in this path")
 
@@ -1670,10 +1716,14 @@ elif selected_page == "Analyzer":
 
             if stdout:
                 with st.expander("📋 Full analysis log"):
+                    st.markdown("<div class='output-block'>", unsafe_allow_html=True)
                     st.code(stdout, language="text")
+                    st.markdown("</div>", unsafe_allow_html=True)
             if stderr and not ok:
                 with st.expander("❗ Errors / warnings"):
+                    st.markdown("<div class='output-block'>", unsafe_allow_html=True)
                     st.code(stderr, language="text")
+                    st.markdown("</div>", unsafe_allow_html=True)
 
             if not report_ok:
                 st.error("Lakebridge did not generate a valid Excel report.")
@@ -2069,6 +2119,12 @@ elif selected_page == "Transpiler":
                 items = st.session_state.get("tp_ws_items", [])
 
                 if items:
+                    st.markdown(
+                        "<div style='max-height:40vh;overflow-y:auto;padding:0.5rem 0.5rem 0.25rem 0.5rem;"
+                        "border:1px solid #e5e7eb;border-radius:10px;background:#ffffff;'>",
+                        unsafe_allow_html=True,
+                    )
+
                     dirs = [o for o in items if o.get("object_type") == "DIRECTORY"]
                     files = [o for o in items if o.get("object_type") in ["NOTEBOOK", "FILE"]]
 
@@ -2113,6 +2169,8 @@ elif selected_page == "Transpiler":
                             st.info("No files selected")
                     else:
                         st.info("No valid files in this folder")
+
+                    st.markdown("</div>", unsafe_allow_html=True)
                 else:
                     st.info("No items found in this path")
             except Exception as e:
@@ -2227,10 +2285,14 @@ elif selected_page == "Transpiler":
             # ── Logs ─────────────────────────────────────────────────────────
             if tp_stdout:
                 with st.expander("📋 Transpiler output log"):
+                    st.markdown("<div class='output-block'>", unsafe_allow_html=True)
                     st.code(tp_stdout, language="text")
+                    st.markdown("</div>", unsafe_allow_html=True)
             if tp_stderr and not tp_ok:
                 with st.expander("❗ Errors / warnings"):
+                    st.markdown("<div class='output-block'>", unsafe_allow_html=True)
                     st.code(tp_stderr, language="text")
+                    st.markdown("</div>", unsafe_allow_html=True)
 
             # ── Results ──────────────────────────────────────────────────────
             if n_out > 0:
@@ -2406,16 +2468,15 @@ elif selected_page == "Settings":
     """, unsafe_allow_html=True)
 
     # ── Auto-detect context ───────────────────────────────────────────────────
-    db_host_env   = os.environ.get("DATABRICKS_HOST", "")
-    db_token_env  = os.environ.get("DATABRICKS_TOKEN", "")
-    db_cfg_exists = Path.home().joinpath(".databrickscfg").exists()
+    db_host_env = os.environ.get("DATABRICKS_HOST", "")
+    db_token_env = os.environ.get("DATABRICKS_TOKEN", "")
 
     if db_host_env and db_token_env:
         st.markdown(
             f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;'
             f'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#166534;">'
             f'✅ <strong>Ready</strong> — workspace <code>{db_host_env}</code> and token are '
-            f'already present in the environment (Databricks Apps or pre-configured CLI). '
+            f'already present in the environment. '
             f'You do not need to fill anything in below. '
             f'Use the fields only if you want to override for this session.'
             f'</div>',
@@ -2426,18 +2487,8 @@ elif selected_page == "Settings":
             f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;'
             f'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#92400e;">'
             f'⚠️ <strong>Workspace URL detected</strong> (<code>{db_host_env}</code>) but no token '
-            f'found in environment. If you have a configured CLI profile (<code>~/.databrickscfg</code>) '
-            f'it will be used automatically. Otherwise enter a token below.'
+            f'found in environment. Enter a token below to continue.'
             f'</div>',
-            unsafe_allow_html=True,
-        )
-    elif db_cfg_exists:
-        st.markdown(
-            '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;'
-            'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#166534;">'
-            '✅ <strong>Databricks CLI profile found</strong> (<code>~/.databrickscfg</code>). '
-            'The CLI will use it automatically — no input needed unless you want a different workspace.'
-            '</div>',
             unsafe_allow_html=True,
         )
     else:
@@ -2477,69 +2528,44 @@ elif selected_page == "Settings":
         save_clicked = status_col1.button("💾 Save connection", key="save_db_connection")
         test_workspace_clicked = status_col2.button("🔍 Test workspace connection", key="test_workspace_connection")
         if save_clicked:
-            sync_databricks_env_from_session_state()
-            st.success("✅ Connection values saved for this session.")
-            st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
-            st.caption(
-        "Credentials are held in session state only. "
-        "They are injected into the subprocess environment for Analyzer and Transpiler calls "
-        "and are not stored to disk or shared between users."
-                    )
+            try:
+                set_databricks_env(st.session_state.get("sb_db_host"),
+                st.session_state.get("sb_db_token"))
+                st.success("✅ Connection configured successfully")
+                st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+                st.caption(
+                "Credentials are held in session state only. "
+                "They are injected into the subprocess environment for Analyzer and Transpiler calls "
+                "and are not stored to disk or shared between users."
+            )
+            except ValueError as e:
+                st.error(str(e))
+            # sync_databricks_env_from_session_state()
+            
 
         if test_workspace_clicked:
-            sync_databricks_env_from_session_state()
+            # sync_databricks_env_from_session_state()
             host = st.session_state.get("sb_db_host", "").strip()
             token = st.session_state.get("sb_db_token", "").strip()
-            profile = st.session_state.get("sb_db_profile", "").strip()
-            ok, message = test_databricks_workspace_connection(host, token, profile)
+            ok, message = test_databricks_workspace_connection(host, token)
             if ok:
                 st.success(f"✅ {message}")
             else:
                 st.error(f"❌ {message}")
-                
-        st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
-        st.markdown("##### Option B — Named Profile")
-        st.text_input(
-            "Databricks Config Profile",
-            key="sb_db_profile",
-            placeholder="DEFAULT",
-            help=(
-                "Name of the profile in your ~/.databrickscfg file. "
-                "Leave blank to use the DEFAULT profile. "
-                "Create profiles with: databricks configure --profile <name>"
-            ),
-        )
-        st.markdown("<div style='height:0.75rem'></div>", unsafe_allow_html=True)
-        if st.button("🧰 Test Databricks CLI connection", key="test_db_cli_connection"):
-            ok, message = test_databricks_cli_connection()
-            if ok:
-                st.success("✅ CLI connection test succeeded")
-                st.code(message, language="text")
-            else:
-                st.error("❌ CLI connection test failed")
-                st.code(message, language="text")
 
-    with cfg_col2:
-        st.markdown("##### How to get a Personal Access Token")
-        st.markdown("""
-            1. Open your Databricks workspace in a browser.
-            2. Click your username (top right) → **Settings**.
+        st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
+        st.markdown(
+            """
             3. Go to **Developer** → **Access Tokens** → **Generate new token**.
             4. Give it a name and copy the token value — you won't see it again.
             5. Paste it in the **PAT** field on the left.
-
-            ##### How to configure a CLI profile
-            ```bash
-            databricks configure --profile myprofile
-            # Enter workspace URL and token when prompted
-            ```
-            Then set **Profile** = `myprofile` on the left.
 
             ##### Azure / GCP / AWS
             SyrenBridge works with any Databricks workspace. The workspace URL format varies:
             - **Azure:** `https://adb-XXXX.XX.azuredatabricks.net`
             - **AWS:** `https://XXXX.cloud.databricks.com`
             - **GCP:** `https://XXXX.gcp.databricks.com`
-                    """)
+            """
+        )
 
 

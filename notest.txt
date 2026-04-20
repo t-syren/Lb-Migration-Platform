@@ -1,8 +1,26 @@
 venv - lb
+steps: 
+1) python -m venv lb;  #create venv named lb
+2) lb\Scripts\Activate.ps1  #windows
+
+#install required modules
+3) pip install -r lb_migration_platform_ui/requirements.txt
+4) pip install -r lb_migration_platform_ui/requirements-dev.txt
+
+#install both analyser and transpiller from lakebridge
+
 https://databrickslabs.github.io/lakebridge/docs/installation/
 
-to authenticate - databricks auth login --host https://adb-204242957656703.3.azuredatabricks.net
+databricks labs install lakebridge
+databricks labs lakebridge install-transpile
 
+to authenticate -
+databricks auth login --host url
+ex: 
+databricks auth login --host https://adb-204242957656703.3.azuredatabricks.net
+
+#run application
+streamlit run lb_migration_platform_ui/app.py
 
 to run claudde
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc

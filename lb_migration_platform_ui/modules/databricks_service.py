@@ -10,37 +10,17 @@ import streamlit as st
 def get_databricks_credentials():
     """Single source of truth for Databricks auth"""
 
-    # 1. From Streamlit session (Settings tab)
-    host = st.session_state.get("sb_db_host", "").strip()
-    token = st.session_state.get("sb_db_token", "").strip()
+    # host = st.session_state.get("sb_db_host", "").strip()
+    # token = st.session_state.get("sb_db_token", "").strip()
 
-    if host and token:
-        return host, token
+    # if host and token:
+    #     return host, token
 
-    # 2. From environment (Databricks Apps / system env)
     host = os.environ.get("DATABRICKS_HOST")
     token = os.environ.get("DATABRICKS_TOKEN")
 
     if host and token:
         return host, token
-
-    # 3. CLI profile (~/.databrickscfg)
-    profile = st.session_state.get("sb_db_profile") or os.environ.get("DATABRICKS_CONFIG_PROFILE")
-
-    if profile:
-        import configparser
-        cfg_path = os.path.expanduser("~/.databrickscfg")
-
-        if os.path.exists(cfg_path):
-            config = configparser.ConfigParser()
-            config.read(cfg_path)
-
-            if profile in config:
-                host = config[profile].get("host")
-                token = config[profile].get("token")
-
-                if host and token:
-                    return host, token
 
     return None, None
 
@@ -66,7 +46,7 @@ class DatabricksClient:
         if not host or not token:
             raise ValueError(
                 "Databricks credentials not configured.\n"
-                "Go to Settings and provide Host + Token OR configure CLI profile."
+                "Go to Settings and provide Host + Token."
             )
 
         return cls(host, token)
