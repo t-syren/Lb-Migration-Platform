@@ -64,6 +64,14 @@ Credentials flow:
 - `app.py` imports from `modules/` and handles all Streamlit rendering.
 - PySpark is only used in `modules/dummy_data.py`, `modules/sql_validator.py`, and tests — never in the Streamlit render path (it's too slow to start on page load).
 - sqlglot dialect must be `write="databricks"` for HiveSQL output, NOT `write="spark"`.
+Input SQL
+ → Pre-processing (clean + detect issues)
+ → Split into statements (line-aware)
+ → SQLGlot conversion (Hive → Databricks)
+ → Post-processing (rules + normalization)
+ → Issue tagging
+ → (Optional) LLM fix for problematic statements ,not for whole file content ,if LLM Not configured -> Output = SQLGlot + rule-based conversion only else ->Output = SQLGlot + rule-based + LLM Fixes
+ → Final SQL output
 
 ---
 

@@ -7,3 +7,5 @@ sqlglot>=30.4.3
 pyspark>=3.5.0,<5.0.0
 lxml>=5.0.0
 libcst>=1.1.0
+pyyaml>=6.0.0
+requests>=2.0.0

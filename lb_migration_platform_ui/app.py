@@ -24,6 +24,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from modules.oozie_converter import workflow_to_json, parse_workflow
 from modules.databricks_service import DatabricksClient
+from modules.sql_transpiler import run_hive_transpiler
+from modules.llm_converter import LLMConverter, load_prompt
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DATA — ANALYZER
@@ -388,6 +390,92 @@ def set_databricks_env(host: str, token: str):
     os.environ["DATABRICKS_HOST"] = host
     os.environ["DATABRICKS_TOKEN"] = token
 
+
+def set_llm_env(endpoint: str, api_key: str):
+    """Set LLM credentials in environment variables."""
+    endpoint = (endpoint or "").strip()
+    api_key = (api_key or "").strip()
+
+    if not endpoint or not api_key:
+        raise ValueError("Both LLM Endpoint and API Key are required")
+
+    os.environ["LLM_ENDPOINT"] = endpoint
+    os.environ["LLM_API_KEY"] = api_key
+
+
+def test_llm_connection(endpoint: str, api_key: str) -> tuple[bool, str]:
+    endpoint = endpoint.strip()
+    api_key = api_key.strip()
+
+    if not (endpoint and api_key):
+        return False, "Both LLM Endpoint and API Key are required"
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+
+    # minimal valid payload
+    payload = {
+        "messages": [
+            {"role": "user", "content": "Hello"}
+        ],
+        "max_tokens": 5,
+        "temperature": 0
+    }
+
+    try:
+        import requests
+
+        response = requests.post(
+            endpoint,
+            headers=headers,
+            json=payload,
+            timeout=15
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+
+            # basic validation
+            if "choices" in data:
+                return True, "LLM connection successful"
+            else:
+                return False, "LLM responded but invalid format"
+
+        elif response.status_code == 401:
+            return False, "Invalid API key"
+
+        elif response.status_code == 404:
+            return False, "Invalid endpoint URL"
+
+        else:
+            return False, f"LLM error: {response.status_code} - {response.text}"
+
+    except Exception as e:
+        return False, f"Connection failed: {str(e)}"
+
+
+def clear_databricks_credentials():
+    """Clear Databricks credentials from environment and session state."""
+    # Remove from environment
+    os.environ.pop("DATABRICKS_HOST", None)
+    os.environ.pop("DATABRICKS_TOKEN", None)
+    
+    # Remove from session state
+    st.session_state.pop("sb_db_host", None)
+    st.session_state.pop("sb_db_token", None)
+
+
+def clear_llm_credentials():
+    """Clear LLM credentials from environment and session state."""
+    # Remove from environment
+    os.environ.pop("LLM_ENDPOINT", None)
+    os.environ.pop("LLM_API_KEY", None)
+    
+    # Remove from session state
+    st.session_state.pop("sb_llm_endpoint", None)
+    st.session_state.pop("sb_llm_api_key", None)
 
 def _ensure_workspace_folder(client: DatabricksClient, folder_path: str) -> None:
     folder_path = folder_path.strip()
@@ -910,134 +998,134 @@ def run_transpiler(
         return False, "", str(e)
 
 
-def run_hive_transpiler(
-    src_dir: str,
-    out_dir: str,
-    err_file: str,
-    target: str,
-    catalog: str = "",
-    schema: str = "",
-) -> tuple[bool, str, str]:
-    """
-    Custom HiveSQL → SparkSQL / PySpark transpiler powered by sqlglot.
-    Bypasses the lakebridge CLI (which has no Hive dialect) and processes
-    .hql / .hive / .sql / .ddl / .dml files directly in Python.
-    """
-    try:
-        import sqlglot
-    except ImportError:
-        return False, "", (
-            "`sqlglot` is not installed.\n"
-            "Run:  pip install 'sqlglot>=23.0.0'"
-        )
+# def run_hive_transpiler(
+#     src_dir: str,
+#     out_dir: str,
+#     err_file: str,
+#     target: str,
+#     catalog: str = "",
+#     schema: str = "",
+# ) -> tuple[bool, str, str]:
+#     """
+#     Custom HiveSQL → SparkSQL / PySpark transpiler powered by sqlglot.
+#     Bypasses the lakebridge CLI (which has no Hive dialect) and processes
+#     .hql / .hive / .sql / .ddl / .dml files directly in Python.
+#     """
+#     try:
+#         import sqlglot
+#     except ImportError:
+#         return False, "", (
+#             "`sqlglot` is not installed.\n"
+#             "Run:  pip install 'sqlglot>=23.0.0'"
+#         )
 
-    src_root = Path(src_dir)
-    out_root = Path(out_dir)
-    hive_exts = {".hql", ".hive", ".sql", ".ddl", ".dml"}
+#     src_root = Path(src_dir)
+#     out_root = Path(out_dir)
+#     hive_exts = {".hql", ".hive", ".sql", ".ddl", ".dml"}
 
-    errors: list[str] = []
-    processed = 0
-    generated = 0
+#     errors: list[str] = []
+#     processed = 0
+#     generated = 0
 
-    for src_file in sorted(src_root.rglob("*")):
-        if not src_file.is_file() or src_file.suffix.lower() not in hive_exts:
-            continue
+#     for src_file in sorted(src_root.rglob("*")):
+#         if not src_file.is_file() or src_file.suffix.lower() not in hive_exts:
+#             continue
 
-        processed += 1
-        rel_path = src_file.relative_to(src_root)
+#         processed += 1
+#         rel_path = src_file.relative_to(src_root)
 
-        try:
-            content = src_file.read_text(encoding="utf-8", errors="replace")
-        except Exception as exc:
-            errors.append(f"{rel_path}: could not read — {exc}")
-            continue
+#         try:
+#             content = src_file.read_text(encoding="utf-8", errors="replace")
+#         except Exception as exc:
+#             errors.append(f"{rel_path}: could not read — {exc}")
+#             continue
 
-        # ── Transpile with sqlglot ───────────────────────────────────────────
-        try:
-            converted_stmts = sqlglot.transpile(
-                content,
-                read="hive",
-                write="databricks",
-                pretty=True,
-                error_level=sqlglot.ErrorLevel.WARN,
-            )
-        except Exception as exc:
-            errors.append(f"{rel_path}: parse/transpile error — {exc}")
-            continue
+#         # ── Transpile with sqlglot ───────────────────────────────────────────
+#         try:
+#             converted_stmts = sqlglot.transpile(
+#                 content,
+#                 read="hive",
+#                 write="databricks",
+#                 pretty=True,
+#                 error_level=sqlglot.ErrorLevel.WARN,
+#             )
+#         except Exception as exc:
+#             errors.append(f"{rel_path}: parse/transpile error — {exc}")
+#             continue
 
-        if not converted_stmts:
-            errors.append(f"{rel_path}: no SQL statements found")
-            continue
+#         if not converted_stmts:
+#             errors.append(f"{rel_path}: no SQL statements found")
+#             continue
 
-        # ── Build output content ─────────────────────────────────────────────
-        if target == "SPARKSQL":
-            out_ext = ".sql"
-            lines: list[str] = [
-                f"-- Transpiled from HiveSQL  |  source: {src_file.name}",
-                f"-- Engine: sqlglot (hive → spark)  |  target: SparkSQL / Databricks",
-                "",
-            ]
-            if catalog.strip():
-                lines += [f"USE CATALOG {catalog.strip()};", ""]
-            if schema.strip():
-                lines += [f"USE {schema.strip()};", ""]
-            for stmt in converted_stmts:
-                if stmt.strip():
-                    lines.append(stmt.rstrip(";") + ";")
-                    lines.append("")
-            out_content = "\n".join(lines)
+#         # ── Build output content ─────────────────────────────────────────────
+#         if target == "SPARKSQL":
+#             out_ext = ".sql"
+#             lines: list[str] = [
+#                 f"-- Transpiled from HiveSQL  |  source: {src_file.name}",
+#                 f"-- Engine: sqlglot (hive → spark)  |  target: SparkSQL / Databricks",
+#                 "",
+#             ]
+#             if catalog.strip():
+#                 lines += [f"USE CATALOG {catalog.strip()};", ""]
+#             if schema.strip():
+#                 lines += [f"USE {schema.strip()};", ""]
+#             for stmt in converted_stmts:
+#                 if stmt.strip():
+#                     lines.append(stmt.rstrip(";") + ";")
+#                     lines.append("")
+#             out_content = "\n".join(lines)
 
-        else:  # PYSPARK
-            out_ext = ".py"
-            lines = [
-                "# -*- coding: utf-8 -*-",
-                '"""',
-                f"Transpiled from HiveSQL  |  source: {src_file.name}",
-                "Engine: sqlglot (hive → spark)  |  target: PySpark / Databricks",
-                '"""',
-                "",
-                "from pyspark.sql import SparkSession",
-                "",
-                "spark = SparkSession.builder.getOrCreate()",
-                "",
-            ]
-            if catalog.strip():
-                lines += [f'spark.sql("USE CATALOG {catalog.strip()}")', ""]
-            if schema.strip():
-                lines += [f'spark.sql("USE {schema.strip()}")', ""]
-            for i, stmt in enumerate(converted_stmts, start=1):
-                if not stmt.strip():
-                    continue
-                safe_stmt = stmt.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
-                lines += [
-                    f"# ── Statement {i} ──",
-                    f'spark.sql("""',
-                    safe_stmt,
-                    '""")',
-                    "",
-                ]
-            out_content = "\n".join(lines)
+#         else:  # PYSPARK
+#             out_ext = ".py"
+#             lines = [
+#                 "# -*- coding: utf-8 -*-",
+#                 '"""',
+#                 f"Transpiled from HiveSQL  |  source: {src_file.name}",
+#                 "Engine: sqlglot (hive → spark)  |  target: PySpark / Databricks",
+#                 '"""',
+#                 "",
+#                 "from pyspark.sql import SparkSession",
+#                 "",
+#                 "spark = SparkSession.builder.getOrCreate()",
+#                 "",
+#             ]
+#             if catalog.strip():
+#                 lines += [f'spark.sql("USE CATALOG {catalog.strip()}")', ""]
+#             if schema.strip():
+#                 lines += [f'spark.sql("USE {schema.strip()}")', ""]
+#             for i, stmt in enumerate(converted_stmts, start=1):
+#                 if not stmt.strip():
+#                     continue
+#                 safe_stmt = stmt.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
+#                 lines += [
+#                     f"# ── Statement {i} ──",
+#                     f'spark.sql("""',
+#                     safe_stmt,
+#                     '""")',
+#                     "",
+#                 ]
+#             out_content = "\n".join(lines)
 
-        # ── Write output file ────────────────────────────────────────────────
-        out_file = out_root / rel_path.with_suffix(out_ext)
-        out_file.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            out_file.write_text(out_content, encoding="utf-8")
-            generated += 1
-        except Exception as exc:
-            errors.append(f"{rel_path}: could not write output — {exc}")
+#         # ── Write output file ────────────────────────────────────────────────
+#         out_file = out_root / rel_path.with_suffix(out_ext)
+#         out_file.parent.mkdir(parents=True, exist_ok=True)
+#         try:
+#             out_file.write_text(out_content, encoding="utf-8")
+#             generated += 1
+#         except Exception as exc:
+#             errors.append(f"{rel_path}: could not write output — {exc}")
 
-    # ── Error log ────────────────────────────────────────────────────────────
-    if errors:
-        Path(err_file).write_text("\n".join(errors), encoding="utf-8")
+#     # ── Error log ────────────────────────────────────────────────────────────
+#     if errors:
+#         Path(err_file).write_text("\n".join(errors), encoding="utf-8")
 
-    stdout = (
-        f"HiveSQL transpiler (sqlglot → Databricks SQL): {processed} file(s) processed, "
-        f"{generated} file(s) generated."
-        + (f"  {len(errors)} error(s) — see log." if errors else "")
-    )
-    stderr = "\n".join(errors) if (errors and generated == 0) else ""
-    return generated > 0, stdout, stderr
+#     stdout = (
+#         f"HiveSQL transpiler (sqlglot → Databricks SQL): {processed} file(s) processed, "
+#         f"{generated} file(s) generated."
+#         + (f"  {len(errors)} error(s) — see log." if errors else "")
+#     )
+#     stderr = "\n".join(errors) if (errors and generated == 0) else ""
+#     return generated > 0, stdout, stderr
 
 
 def run_oozie_converter(
@@ -2225,6 +2313,10 @@ elif selected_page == "Transpiler":
                     )
                 elif dialect_info.get("custom"):
                     # Custom in-process transpiler (HiveSQL via sqlglot → Databricks SQL)
+                    # Get LLM credentials from environment or session state
+                    llm_endpoint = os.environ.get("LLM_ENDPOINT", "") or st.session_state.get("sb_llm_endpoint", "")
+                    llm_api_key = os.environ.get("LLM_API_KEY", "") or st.session_state.get("sb_llm_api_key", "")
+                    
                     tp_ok, tp_stdout, tp_stderr = run_hive_transpiler(
                         src_dir=tp_src_dir,
                         out_dir=tp_out_dir,
@@ -2232,6 +2324,8 @@ elif selected_page == "Transpiler":
                         target=target_cli,
                         catalog=st.session_state.get("tp_catalog", ""),
                         schema=st.session_state.get("tp_schema", ""),
+                        llm_endpoint=llm_endpoint,
+                        llm_api_key=llm_api_key,
                     )
                 else:
                     tp_ok, tp_stdout, tp_stderr = run_transpiler(
@@ -2516,9 +2610,16 @@ elif selected_page == "Settings":
         placeholder="dapiXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
         help="Generate a token in Databricks → User Settings → Developer → Access Tokens.",
     )
-    status_col1, status_col2 = st.columns([1, 1], gap="large")
+    status_col1, status_col2, status_col3 = st.columns([1, 1, 1], gap="large")
     save_clicked = status_col1.button("💾 Save connection", key="save_db_connection")
     test_workspace_clicked = status_col2.button("🔍 Test workspace connection", key="test_workspace_connection")
+    clear_clicked = status_col3.button("🗑️ Clear workspace credentials", key="clear_db_connection")
+    
+    if clear_clicked:
+        clear_databricks_credentials()
+        st.success("✅ Databricks credentials cleared")
+        st.rerun()
+    
     if save_clicked:
         try:
             set_databricks_env(st.session_state.get("sb_db_host"),
@@ -2554,6 +2655,106 @@ elif selected_page == "Settings":
         - **Azure:** `https://adb-XXXX.XX.azuredatabricks.net`
         - **AWS:** `https://XXXX.cloud.databricks.com`
         - **GCP:** `https://XXXX.gcp.databricks.com`
+        """
+    )
+
+    st.markdown("---")
+
+    # ── LLM Credentials ───────────────────────────────────────────────────────
+    st.markdown("##### LLM Credentials — Endpoint + API Key")
+
+    # Auto-detect LLM context from environment
+    llm_endpoint_env = os.environ.get("LLM_ENDPOINT", "")
+    llm_api_key_env = os.environ.get("LLM_API_KEY", "")
+
+    if llm_endpoint_env and llm_api_key_env:
+        st.markdown(
+            f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;'
+            f'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#166534;">'
+            f'✅ <strong>Ready</strong> — LLM endpoint <code>{llm_endpoint_env}</code> and API key are '
+            f'already present in the environment. '
+            f'You do not need to fill anything in below. '
+            f'Use the fields only if you want to override for this session.'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    elif llm_endpoint_env:
+        st.markdown(
+            f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;'
+            f'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#92400e;">'
+            f'⚠️ <strong>LLM Endpoint detected</strong> (<code>{llm_endpoint_env}</code>) but no API key '
+            f'found in environment. Enter an API key below to continue.'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;'
+            'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#475569;">'
+            'ℹ️ <strong>LLM credentials are optional.</strong> They are used for the LLM-powered '
+            'transpiler (when enabled). If not provided, the standard transpiler will be used.<br><br>'
+            '<strong>Supported providers:</strong> OpenAI, Azure OpenAI, Anthropic, Cohere, and other '
+            'compatible LLM endpoints.'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+    st.text_input(
+        "LLM Endpoint URL",
+        key="sb_llm_endpoint",
+        placeholder="https://adb-<workspace-id>.azuredatabricks.net/serving-endpoints/databricks-<model-name>/invocations",
+        help="The full URL of your LLM API endpoint. For OpenAI, use https://api.openai.com/v1",
+    )
+
+    st.text_input(
+        "LLM API Key",
+        key="sb_llm_api_key",
+        type="password",
+        placeholder="dap-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+        help="Your LLM API key. For OpenAI, get it from https://platform.openai.com/api-keys",
+    )
+
+    llm_col1, llm_col2, llm_col3 = st.columns([1, 1, 1], gap="large")
+    llm_save_clicked = llm_col1.button("💾 Save LLM connection", key="save_llm_connection")
+    llm_test_clicked = llm_col2.button("🔍 Test LLM connection", key="test_llm_connection")
+    llm_clear_clicked = llm_col3.button("🗑️ Clear LLM credentials", key="clear_llm_connection")
+
+    if llm_clear_clicked:
+        clear_llm_credentials()
+        st.success("✅ LLM credentials cleared")
+        st.rerun()
+
+    if llm_save_clicked:
+        try:
+            set_llm_env(
+                st.session_state.get("sb_llm_endpoint"),
+                st.session_state.get("sb_llm_api_key")
+            )
+            st.success("✅ LLM connection configured successfully")
+            st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+            st.caption(
+                "LLM credentials are held in session state only. "
+                "They are injected into the subprocess environment for LLM transpiler calls "
+                "and are not stored to disk or shared between users."
+            )
+        except ValueError as e:
+            st.error(str(e))
+
+    if llm_test_clicked:
+        endpoint = st.session_state.get("sb_llm_endpoint", "").strip()
+        api_key = st.session_state.get("sb_llm_api_key", "").strip()
+        ok, message = test_llm_connection(endpoint, api_key)
+        if ok:
+            st.success(f"✅ {message}")
+        else:
+            st.error(f"❌ {message}")
+
+    st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
+    st.markdown(
+        """
+        ##### Supported LLM Providers
+         **Databricks serving models:** `https://adb-<workspace-id>.azuredatabricks.net/serving-endpoints/databricks-<model-name>/invocations` (Use claude sonnet )
+       
         """
     )
 
