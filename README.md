@@ -36,64 +36,6 @@ The tool is built on top of [Databricks Labs Lakebridge](https://github.com/data
 
 ---
 
-## Recent Updates
-
-### v2.0 — Enhanced HiveSQL Transpiler & LLM Integration (Latest)
-
-**Major Changes:**
-
-1. **3-Stage Transpilation Pipeline** (`modules/sql_transpiler.py`)
-   - Stage 1: Pre-processing with line-aware statement splitting and variable extraction
-   - Stage 2: sqlglot + rule-based conversion with advanced CREATE TABLE handling
-   - Stage 3: Optional LLM-assisted fixing for problematic statements
-
-2. **New Module: `modules/llm_converter.py`**
-   - LLMConverter class for Databricks API integration
-   - Retry logic with exponential backoff
-   - Request ID tracking and comprehensive error handling
-   - Production-ready safety checks
-
-3. **Prompt Engineering Support**
-   - New `modules/prompts/` folder with `hivesql.yml`
-   - YAML-based prompt templates for LLM behavior control
-   - Supports multi-statement batches with STATEMENT_ID markers
-
-4. **Enhanced Hive Variable Handling**
-   - Automatic extraction: `${var}`, `${hivevar:var}`, `SET var = value`
-   - Conversion to Databricks `DECLARE OR REPLACE VARIABLE` syntax
-   - Config filtering (ignores `spark.*`, `hive.*`, `mapreduce.*`)
-   - Auto-quoting for date values
-
-5. **Improved Issue Detection & Categorization**
-   - Severity levels: BLOCKER, ERROR, WARNING, INFO
-   - Multi-line issue tracking for global patterns
-   - Statement-level issue indexing for LLM processing
-   - Automatic flagging of: UDFs, multi-insert, LOAD DATA, dynamic variables
-
-6. **Better CREATE TABLE Normalization**
-   - EXTERNAL → managed Delta tables
-   - CTAS (Create Table As Select) handling
-   - USING DELTA clause injection
-   - LOCATION preservation and validation
-
-7. **New DDL Transformations**
-   - `MSCK REPAIR TABLE` → `REFRESH TABLE`
-   - `ANALYZE TABLE ... FOR COLUMNS` → normalized syntax
-   - Clause stripping: CLUSTERED BY, SORTED BY, SKEWED BY, INPUTFORMAT, OUTPUTFORMAT
-   - Pattern-based function rewrites: NVL, FROM_UNIXTIME, UNIX_TIMESTAMP, MAPJOIN hints
-
-**New Configuration Options (Settings Tab):**
-- LLM Endpoint (optional)
-- LLM API Key (optional)
-- Automatic fallback to rule-based transpilation if LLM unavailable
-
-**Backwards Compatibility:**
-- All existing transpiler functionality preserved
-- Transpiler output (.sql / .py) format unchanged
-- Non-LLM mode produces identical output to v1.x
-
----
-
 ## What Lakebridge Provides Natively
 
 Lakebridge is the open-source CLI layer that does the actual analysis and transpilation work. SyrenBridge calls it as a subprocess.
@@ -197,7 +139,6 @@ The transpiler (`modules/sql_transpiler.py`) processes Hive SQL in three stages:
   - `spark.sql("""statement""")` wrapping
   - Issues annotated as Python comments
 
-The custom engine is backed by a local-mode PySpark validation layer (`modules/sql_validator.py`) that executes both the original and transpiled SQL against dummy data to confirm row count and schema equivalence.
 
 ### 2. Oozie (Workflow) — 11th Dialect
 
@@ -271,31 +212,6 @@ The HiveSQL transpiler has been significantly enhanced with a **3-stage producti
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### Hive Variable Handling
-
-The transpiler automatically extracts and normalizes Hive variables:
-
-**Input Hive SQL:**
-```sql
-SET hivevar:region=APAC;
-SET run_date=2025-01-15;
-SELECT * FROM sales WHERE region = ${region} AND date = '${run_date}';
-```
-
-**Output Databricks SQL:**
-```sql
-DECLARE OR REPLACE VARIABLE region STRING DEFAULT 'APAC';
-DECLARE OR REPLACE VARIABLE run_date STRING DEFAULT '2025-01-15';
-SELECT * FROM sales WHERE region = region AND date = '2025-01-15';
-```
-
-Features:
-- Extracts inline variables: `${var}`, `${hivevar:var}`
-- Processes SET statements: `SET var = value` and `SET hivevar:var = value`
-- Filters engine configs (`spark.*`, `hive.*`, `mapreduce.*`) — not converted
-- Auto-quotes date-like values (ISO 8601) to prevent arithmetic interpretation
-- Removes SET statements from transpiled output
-- Generates SQL variable declarations for Databricks
 
 ### Issue Detection & Categorization
 
@@ -653,7 +569,7 @@ HiveSQL transpilation can optionally use an LLM to fix problematic statements. T
 
 **Step 2: Configure in Streamlit App**
 In the **Settings** tab, you'll see optional LLM fields:
-- **LLM Endpoint**: Full URL to Claude endpoint (Databricks or external)
+- **LLM Endpoint**: Full URL to Claude endpoint (Databricks supported)
 - **LLM API Key**: Personal Access Token
 
 When both are filled, HiveSQL Transpiler automatically uses LLM for Stage 3 enhancement.
