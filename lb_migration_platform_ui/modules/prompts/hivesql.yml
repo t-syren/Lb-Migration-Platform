@@ -1,11 +1,13 @@
 system: |
   Convert Hive SQL to Databricks SQL using LLM.
   Focus on fixing syntax and compatibility issues while preserving original logic. 
-  Only return valid Databricks SQL without explanations or markdown.
+  Return the fixed Databricks SQL blocks with their original STATEMENT_ID markers.
 
 rules: |
-  - ONLY return valid Databricks SQL
-  - DO NOT add explanations or comments
+  - ONLY return valid Databricks SQL blocks with their original STATEMENT_ID markers
+  - DO NOT add explanations or comments other than the required STATEMENT_ID markers
+  - Preserve each input marker exactly as `-- STATEMENT_ID: <number>` before its corrected SQL
+  - Return one corrected SQL block for every input STATEMENT_ID
   - DO NOT add markdown (no ```sql)
   - DO NOT change bussiness logic 
   - ONLY fix statements related to issues
@@ -13,8 +15,6 @@ rules: |
   - If unsure, return the original SQL without changes
   - DO NOT remove partition logic
   - DO NOT change table behavior
-  - ONLY modify statements that contain issues
-  - DO NOT modify unrelated statements
   - PRESERVE structure of other statements exactly
   - FIX only syntax incompatibilities
   - DO NOT skip required transformations
@@ -28,5 +28,4 @@ template: |
   {issues}
 
   You MUST fix the issues if possible.
-
-  Output only SQL.
+  Output only SQL blocks with the original STATEMENT_ID markers.

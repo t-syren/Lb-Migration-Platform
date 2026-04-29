@@ -7,7 +7,9 @@ Designed to be hosted on Databricks Apps.
 """
 
 import io
+import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -23,7 +25,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from modules.oozie_converter import workflow_to_json, parse_workflow
-from modules.databricks_service import DatabricksClient
+from modules.databricks_service import DatabricksClient, get_databricks_credentials
 from modules.sql_transpiler import run_hive_transpiler
 from modules.llm_converter import LLMConverter, load_prompt
 
@@ -552,6 +554,133 @@ def store_transpile_output_state(out_dir: str, info: dict) -> None:
     st.session_state["tp_output_info"] = info
 
 
+def extract_llm_enhancement_counts(stdout: str) -> tuple[int, int, int] | None:
+    match = re.search(
+        r"LLM enhancement:\s*(\d+)\s+file\(s\)\s+sent,\s+(\d+)\s+statement\(s\)\s+replaced(?:,\s+(\d+)\s+failure\(s\))?",
+        stdout or "",
+    )
+    if not match:
+        return None
+
+    return int(match.group(1)), int(match.group(2)), int(match.group(3) or 0)
+
+
+def extract_llm_enhancement_summary(stdout: str) -> str | None:
+    counts = extract_llm_enhancement_counts(stdout)
+    if not counts:
+        return None
+
+    files_sent, statements_replaced, failures = counts
+
+    if files_sent == 0:
+        return "LLM enhancement skipped - no problematic statements required LLM review"
+
+    file_label = "file" if files_sent == 1 else "files"
+    summary = f"LLM enhancement completed for {files_sent} {file_label} with {statements_replaced} statement(s)"
+    if failures:
+        summary += f" with {failures} failure(s)"
+    return summary
+
+
+def render_transpile_metric_cards(
+    n_src: int,
+    n_out: int,
+    elapsed: float,
+    llm_files_sent: int = 0,
+    llm_statements_replaced: int = 0,
+) -> None:
+    metric_columns = st.columns(4 if llm_files_sent else 3)
+    with metric_columns[0]:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">ðŸ“</div>
+            <div class="metric-val">{n_src}</div>
+            <div class="metric-lbl">Files Processed</div>
+        </div>""", unsafe_allow_html=True)
+    with metric_columns[1]:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">âœ…</div>
+            <div class="metric-val">{n_out}</div>
+            <div class="metric-lbl">Files Generated</div>
+        </div>""", unsafe_allow_html=True)
+    if llm_files_sent:
+        with metric_columns[2]:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-icon">LLM</div>
+                <div class="metric-val">{llm_files_sent}</div>
+                <div class="metric-lbl">LLM Enhanced ({llm_statements_replaced} statement{'s' if llm_statements_replaced != 1 else ''})</div>
+            </div>""", unsafe_allow_html=True)
+    with metric_columns[-1]:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">âš¡</div>
+            <div class="metric-val">{elapsed:.1f}s</div>
+            <div class="metric-lbl">Time Taken</div>
+        </div>""", unsafe_allow_html=True)
+
+
+def render_oozie_workflow_create_section(tp_out_dir: str, key_suffix: str) -> None:
+    json_files = sorted(
+        [p for p in Path(tp_out_dir).rglob("*.json")],
+        key=lambda p: str(p),
+    )
+    if not json_files:
+        st.warning("No Databricks Workflow JSON was found to create.")
+        return
+
+    selected_file = json_files[0]
+    if len(json_files) > 1:
+        file_labels = [str(p.relative_to(tp_out_dir)) for p in json_files]
+        selected_label = st.selectbox(
+            "Workflow JSON",
+            options=file_labels,
+            key=f"create_oozie_workflow_file_{key_suffix}",
+        )
+        selected_file = json_files[file_labels.index(selected_label)]
+
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        create_clicked = st.button(
+            "Create Databricks Workflow",
+            key=f"create_oozie_workflow_{key_suffix}",
+            width='stretch',
+        )
+
+    if not create_clicked:
+        with col2:
+            st.caption(f"Ready to create from `{selected_file.name}`.")
+        return
+
+    with col2:
+        with st.spinner("Creating workflow..."):
+            try:
+                host, token = get_databricks_credentials()
+                if not host or not token:
+                    st.error(
+                        "Databricks credentials not found. Go to Settings and provide "
+                        "the workspace URL and personal access token."
+                    )
+                    return
+
+                job_payload = json.loads(selected_file.read_text(encoding="utf-8"))
+                dbx = DatabricksClient.from_app_context()
+                response = dbx.create_job(job_payload)
+
+                if "job_id" in response:
+                    job_id = response["job_id"]
+                    st.success(f"Workflow created. Job ID: {job_id}")
+                    st.markdown(f"[Open Job]({dbx.workspace_url}/#job/{job_id})")
+                    return
+
+                st.error(f"Failed to create workflow: {response.get('error', 'Unknown error')}")
+            except json.JSONDecodeError as exc:
+                st.error(f"Workflow JSON is invalid: {exc}")
+            except Exception as exc:
+                st.error(f"Deployment error: {exc}")
+
+
 def render_transpile_output_section() -> None:
     tp_out_dir = st.session_state.get("tp_out_dir")
     info = st.session_state.get("tp_output_info", {})
@@ -587,6 +716,7 @@ def render_transpile_output_section() -> None:
             '</div>',
             unsafe_allow_html=True,
         )
+        render_oozie_workflow_create_section(tp_out_dir, "main")
 
     st.markdown("""
     <div class="results-header">
@@ -595,31 +725,49 @@ def render_transpile_output_section() -> None:
         </div>
     </div>
     """, unsafe_allow_html=True)
+    render_transpile_metrics(
+        n_src=n_src,
+        n_out=n_out,
+        elapsed=elapsed,
+        llm_counts=(
+            info.get("llm_files_sent", 0),
+            info.get("llm_statements_replaced", 0)
+        )
+    )
+    # mc1, mc2, mc3 = st.columns(3)
+    # with mc1:
+    #     st.markdown(f"""
+    #     <div class="metric-card">
+    #         <div class="metric-icon">📁</div>
+    #         <div class="metric-val">{n_src}</div>
+    #         <div class="metric-lbl">Files Processed</div>
+    #     </div>""", unsafe_allow_html=True)
+    # with mc2:
+    #     st.markdown(f"""
+    #     <div class="metric-card">
+    #         <div class="metric-icon">✅</div>
+    #         <div class="metric-val">{n_out}</div>
+    #         <div class="metric-lbl">Files Generated</div>
+    #     </div>""", unsafe_allow_html=True)
+    # with mc3:
+    #     st.markdown(f"""
+    #     <div class="metric-card">
+    #         <div class="metric-icon">⚡</div>
+    #         <div class="metric-val">{elapsed:.1f}s</div>
+    #         <div class="metric-lbl">Time Taken</div>
+    #     </div>""", unsafe_allow_html=True)
 
-    mc1, mc2, mc3 = st.columns(3)
-    with mc1:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-icon">📁</div>
-            <div class="metric-val">{n_src}</div>
-            <div class="metric-lbl">Files Processed</div>
-        </div>""", unsafe_allow_html=True)
-    with mc2:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-icon">✅</div>
-            <div class="metric-val">{n_out}</div>
-            <div class="metric-lbl">Files Generated</div>
-        </div>""", unsafe_allow_html=True)
-    with mc3:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-icon">⚡</div>
-            <div class="metric-val">{elapsed:.1f}s</div>
-            <div class="metric-lbl">Time Taken</div>
-        </div>""", unsafe_allow_html=True)
+    # if info.get("llm_files_sent", 0):
+    #     llm_metric_col, _, _ = st.columns([1, 2, 2])
+    #     with llm_metric_col:
+    #         st.markdown(f"""
+    #         <div class="metric-card">
+    #             <div class="metric-icon">LLM</div>
+    #             <div class="metric-val">{info.get("llm_statements_replaced", 0)}</div>
+    #             <div class="metric-lbl">LLM Enhanced ({info.get("llm_files_sent", 0)} file{'s' if info.get("llm_files_sent", 0) != 1 else ''})</div>
+    #         </div>""", unsafe_allow_html=True)
 
-    st.markdown("<div style='height:1.25rem'></div>", unsafe_allow_html=True)
+    # st.markdown("<div style='height:1.25rem'></div>", unsafe_allow_html=True)
 
     zip_bytes = zip_directory(tp_out_dir)
     zip_name = f"transpiled_{dialect_cli}_{target_cli.lower()}.zip"
@@ -631,7 +779,7 @@ def render_transpile_output_section() -> None:
             file_name=zip_name,
             mime="application/zip",
             key="tp_download_all_output_helper",
-            use_container_width=True,
+            width='stretch',
         )
     with info_col:
         st.markdown(f"""
@@ -654,7 +802,7 @@ def render_transpile_output_section() -> None:
         upload_dest = "/" + upload_dest
         st.session_state["tp_upload_dest"] = upload_dest
 
-    if st.button("📤  Upload All Output Files to Databricks", key="tp_upload_output", use_container_width=True):
+    if st.button("📤  Upload All Output Files to Databricks", key="tp_upload_output", width='stretch'):
         try:
             ok, upload_errors = upload_directory_to_workspace(tp_out_dir, upload_dest)
             if ok:
@@ -998,135 +1146,6 @@ def run_transpiler(
         return False, "", str(e)
 
 
-# def run_hive_transpiler(
-#     src_dir: str,
-#     out_dir: str,
-#     err_file: str,
-#     target: str,
-#     catalog: str = "",
-#     schema: str = "",
-# ) -> tuple[bool, str, str]:
-#     """
-#     Custom HiveSQL → SparkSQL / PySpark transpiler powered by sqlglot.
-#     Bypasses the lakebridge CLI (which has no Hive dialect) and processes
-#     .hql / .hive / .sql / .ddl / .dml files directly in Python.
-#     """
-#     try:
-#         import sqlglot
-#     except ImportError:
-#         return False, "", (
-#             "`sqlglot` is not installed.\n"
-#             "Run:  pip install 'sqlglot>=23.0.0'"
-#         )
-
-#     src_root = Path(src_dir)
-#     out_root = Path(out_dir)
-#     hive_exts = {".hql", ".hive", ".sql", ".ddl", ".dml"}
-
-#     errors: list[str] = []
-#     processed = 0
-#     generated = 0
-
-#     for src_file in sorted(src_root.rglob("*")):
-#         if not src_file.is_file() or src_file.suffix.lower() not in hive_exts:
-#             continue
-
-#         processed += 1
-#         rel_path = src_file.relative_to(src_root)
-
-#         try:
-#             content = src_file.read_text(encoding="utf-8", errors="replace")
-#         except Exception as exc:
-#             errors.append(f"{rel_path}: could not read — {exc}")
-#             continue
-
-#         # ── Transpile with sqlglot ───────────────────────────────────────────
-#         try:
-#             converted_stmts = sqlglot.transpile(
-#                 content,
-#                 read="hive",
-#                 write="databricks",
-#                 pretty=True,
-#                 error_level=sqlglot.ErrorLevel.WARN,
-#             )
-#         except Exception as exc:
-#             errors.append(f"{rel_path}: parse/transpile error — {exc}")
-#             continue
-
-#         if not converted_stmts:
-#             errors.append(f"{rel_path}: no SQL statements found")
-#             continue
-
-#         # ── Build output content ─────────────────────────────────────────────
-#         if target == "SPARKSQL":
-#             out_ext = ".sql"
-#             lines: list[str] = [
-#                 f"-- Transpiled from HiveSQL  |  source: {src_file.name}",
-#                 f"-- Engine: sqlglot (hive → spark)  |  target: SparkSQL / Databricks",
-#                 "",
-#             ]
-#             if catalog.strip():
-#                 lines += [f"USE CATALOG {catalog.strip()};", ""]
-#             if schema.strip():
-#                 lines += [f"USE {schema.strip()};", ""]
-#             for stmt in converted_stmts:
-#                 if stmt.strip():
-#                     lines.append(stmt.rstrip(";") + ";")
-#                     lines.append("")
-#             out_content = "\n".join(lines)
-
-#         else:  # PYSPARK
-#             out_ext = ".py"
-#             lines = [
-#                 "# -*- coding: utf-8 -*-",
-#                 '"""',
-#                 f"Transpiled from HiveSQL  |  source: {src_file.name}",
-#                 "Engine: sqlglot (hive → spark)  |  target: PySpark / Databricks",
-#                 '"""',
-#                 "",
-#                 "from pyspark.sql import SparkSession",
-#                 "",
-#                 "spark = SparkSession.builder.getOrCreate()",
-#                 "",
-#             ]
-#             if catalog.strip():
-#                 lines += [f'spark.sql("USE CATALOG {catalog.strip()}")', ""]
-#             if schema.strip():
-#                 lines += [f'spark.sql("USE {schema.strip()}")', ""]
-#             for i, stmt in enumerate(converted_stmts, start=1):
-#                 if not stmt.strip():
-#                     continue
-#                 safe_stmt = stmt.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
-#                 lines += [
-#                     f"# ── Statement {i} ──",
-#                     f'spark.sql("""',
-#                     safe_stmt,
-#                     '""")',
-#                     "",
-#                 ]
-#             out_content = "\n".join(lines)
-
-#         # ── Write output file ────────────────────────────────────────────────
-#         out_file = out_root / rel_path.with_suffix(out_ext)
-#         out_file.parent.mkdir(parents=True, exist_ok=True)
-#         try:
-#             out_file.write_text(out_content, encoding="utf-8")
-#             generated += 1
-#         except Exception as exc:
-#             errors.append(f"{rel_path}: could not write output — {exc}")
-
-#     # ── Error log ────────────────────────────────────────────────────────────
-#     if errors:
-#         Path(err_file).write_text("\n".join(errors), encoding="utf-8")
-
-#     stdout = (
-#         f"HiveSQL transpiler (sqlglot → Databricks SQL): {processed} file(s) processed, "
-#         f"{generated} file(s) generated."
-#         + (f"  {len(errors)} error(s) — see log." if errors else "")
-#     )
-#     stderr = "\n".join(errors) if (errors and generated == 0) else ""
-#     return generated > 0, stdout, stderr
-
 
 def run_oozie_converter(
     src_dir: str,
@@ -1206,6 +1225,62 @@ def classify_error(stderr: str):
     if "authentication" in stderr.lower():
         return "AUTH_ERROR"
     return "UNKNOWN"
+
+def render_transpile_metrics(n_src, n_out, elapsed, llm_counts=(0, 0)):
+    """
+    llm_counts = (llm_files_sent, llm_statements_replaced)
+    Only llm_files_sent is used for display.
+    """
+
+    llm_files_sent = llm_counts[0]
+
+    # decide columns
+    num_cols = 4 if llm_files_sent else 3
+    cols = st.columns(num_cols)
+
+    idx = 0
+
+    # Files processed
+    with cols[idx]:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">📁</div>
+            <div class="metric-val">{n_src}</div>
+            <div class="metric-lbl">Files Processed</div>
+        </div>""", unsafe_allow_html=True)
+    idx += 1
+
+    # Files generated
+    with cols[idx]:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">✅</div>
+            <div class="metric-val">{n_out}</div>
+            <div class="metric-lbl">Files Generated</div>
+        </div>""", unsafe_allow_html=True)
+    idx += 1
+
+    # LLM card (only if present)
+    if llm_files_sent:
+        with cols[idx]:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-icon">AI</div>
+                <div class="metric-val">{llm_files_sent}</div>
+                <div class="metric-lbl">files enhanced</div>
+            </div>""", unsafe_allow_html=True)
+        idx += 1
+
+    # Time taken
+    with cols[idx]:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">⚡</div>
+            <div class="metric-val">{elapsed:.1f}s</div>
+            <div class="metric-lbl">Time Taken</div>
+        </div>""", unsafe_allow_html=True)
+
+    st.markdown("<div style='height:1.25rem'></div>", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SIDEBAR NAVIGATION
@@ -1710,7 +1785,7 @@ elif selected_page == "Analyzer":
     with btn_col:
         run_clicked = st.button(
             "🚀  Analyse",
-            use_container_width=True,
+            width='stretch',
             disabled=not bool(uploaded_files or st.session_state.get("ws_selected_files")),
             key="run_analyze",
         )
@@ -1839,19 +1914,19 @@ elif selected_page == "Analyzer":
                     ch1, ch2 = st.columns(2) 
                     with ch1 :
                         st.markdown("**⚡ Top Functions by Usage**")
-                        st.altair_chart(fn_chart, use_container_width=True)
+                        st.altair_chart(fn_chart, width='stretch')
                     with ch2:
                         st.markdown("**🗂️ SQL Script Categories**")
-                        st.altair_chart(cat_chart, use_container_width=True)
+                        st.altair_chart(cat_chart, width='stretch')
                 # Case 2: only function chart
                 elif fn_chart:
                     st.markdown("**⚡ Top Functions by Usage**")
-                    st.altair_chart(fn_chart, use_container_width=True)
+                    st.altair_chart(fn_chart, width='stretch')
 
                 # Case 3: only category chart
                 elif cat_chart:
                     st.markdown("**🗂️ SQL Script Categories**")
-                    st.altair_chart(cat_chart, use_container_width=True)
+                    st.altair_chart(cat_chart, width='stretch')
                 st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
                 dl_cols = st.columns(2) if sql_reports else st.columns([1, 2])
 
@@ -1863,7 +1938,7 @@ elif selected_page == "Analyzer":
                             file_name=output_filename,
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             key="analysis_download_main",
-                            use_container_width=True,
+                            width='stretch',
                         )
 
                 if sql_reports:
@@ -1875,7 +1950,7 @@ elif selected_page == "Analyzer":
                                 file_name=sql_reports[0].name,
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 key="analysis_download_sql_sub",
-                                use_container_width=True,
+                                width='stretch',
                             )
 
                 st.markdown("<div style='height:1.25rem'></div>", unsafe_allow_html=True)
@@ -1911,7 +1986,7 @@ elif selected_page == "Analyzer":
                                     st.caption(f"Showing {len(display_df):,} matching rows")
                                 else:
                                     display_df = df
-                                st.dataframe(display_df, use_container_width=True, hide_index=True)
+                                st.dataframe(display_df, width='stretch', hide_index=True)
 
                 if sql_reports:
                     st.markdown("<hr class='section-sep'>", unsafe_allow_html=True)
@@ -1927,7 +2002,7 @@ elif selected_page == "Analyzer":
                                     st.caption("No data rows.")
                                 else:
                                     st.caption(f"{len(df):,} rows · {len(df.columns)} columns")
-                                    st.dataframe(df, use_container_width=True, hide_index=True)
+                                    st.dataframe(df, width='stretch', hide_index=True)
             else:
                 st.error(
                     "No output report was generated. "
@@ -2036,7 +2111,7 @@ elif selected_page == "Transpiler":
                 '<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;'
                 'padding:0.6rem 1rem;font-size:0.82rem;color:#065f46;font-weight:500;">'
                 '📋 Output: <strong>Databricks Workflow JSON</strong> — deployable via '
-                '<code>/api/2.1/jobs</code></div>',
+                '<code>/api/2.1/jobs ,please use button below - Create Databricks Workflow</code></div>',
                 unsafe_allow_html=True,
             )
         elif dialect_info.get("custom"):
@@ -2327,6 +2402,9 @@ elif selected_page == "Transpiler":
                         llm_endpoint=llm_endpoint,
                         llm_api_key=llm_api_key,
                     )
+                    llm_summary = extract_llm_enhancement_summary(tp_stdout)
+                    if llm_summary:
+                        st.write(f"&nbsp;&nbsp;-> {llm_summary}")
                 else:
                     tp_ok, tp_stdout, tp_stderr = run_transpiler(
                         src_dir=tp_src_dir,
@@ -2352,6 +2430,7 @@ elif selected_page == "Transpiler":
 
             st.session_state["tp_stdout"] = tp_stdout
             st.session_state["tp_stderr"] = tp_stderr
+            llm_counts = extract_llm_enhancement_counts(tp_stdout) or (0, 0, 0)
             store_transpile_output_state(tp_out_dir, {
                 "n_src": n_src,
                 "b_out": b_out,
@@ -2362,6 +2441,9 @@ elif selected_page == "Transpiler":
                 "selected_dialect_name": selected_dialect_name,
                 "selected_target_label": selected_target_label,
                 "is_oozie": bool(dialect_info.get("oozie")),
+                "llm_files_sent": llm_counts[0],
+                "llm_statements_replaced": llm_counts[1],
+                "llm_failures": llm_counts[2],
             })
 
             # ── Logs ─────────────────────────────────────────────────────────
@@ -2396,10 +2478,14 @@ elif selected_page == "Transpiler":
                         '<li><strong>EL expressions</strong> (<code>${variable}</code>) are preserved as-is — replace them with Databricks job parameters or widget values.</li>'
                         '<li><strong>Coordinator &amp; Bundle</strong> schedules are not converted — recreate them as Databricks Job schedules (cron or trigger-based).</li>'
                         '<li>Placeholder values marked <code>&lt;replace: …&gt;</code> must be filled in before deploying the job.</li>'
+                        '<li>Cluster configuration values must be updated after deploying the job based on size of the data.</li>'
+                        '<li>Notebook paths should be updated,after deploying the job current paths are based on oozie workflow.</li>'
                         '</ul>'
                         '</div>',
                         unsafe_allow_html=True,
                     )
+
+                    render_oozie_workflow_create_section(tp_out_dir, "main")
 
                 st.markdown("""
                 <div class="results-header">
@@ -2409,32 +2495,10 @@ elif selected_page == "Transpiler":
                 </div>
                 """, unsafe_allow_html=True)
 
-                # Metric cards
-                mc1, mc2, mc3 = st.columns(3)
-                with mc1:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-icon">📁</div>
-                        <div class="metric-val">{n_src}</div>
-                        <div class="metric-lbl">Files Processed</div>
-                    </div>""", unsafe_allow_html=True)
-                with mc2:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-icon">✅</div>
-                        <div class="metric-val">{n_out}</div>
-                        <div class="metric-lbl">Files Generated</div>
-                    </div>""", unsafe_allow_html=True)
-                with mc3:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-icon">⚡</div>
-                        <div class="metric-val">{elapsed:.1f}s</div>
-                        <div class="metric-lbl">Time Taken</div>
-                    </div>""", unsafe_allow_html=True)
-
-                st.markdown("<div style='height:1.25rem'></div>", unsafe_allow_html=True)
-
+                #METRICS TAB  
+                # Decide number of columns
+                render_transpile_metrics(n_src=n_src,n_out=n_out,elapsed=elapsed,llm_counts=llm_counts)
+                
                 # ZIP download
                 zip_bytes = zip_directory(tp_out_dir)
                 zip_name = f"transpiled_{dialect_cli}_{target_cli.lower()}.zip"
@@ -2446,7 +2510,7 @@ elif selected_page == "Transpiler":
                         file_name=zip_name,
                         mime="application/zip",
                         key="tp_download_all_output_inline",
-                        use_container_width=True,
+                        width='stretch',
                     )
                 with info_col:
                     st.markdown(f"""
@@ -2469,7 +2533,7 @@ elif selected_page == "Transpiler":
                     upload_dest = "/" + upload_dest
                     st.session_state["tp_upload_dest"] = upload_dest
 
-                if st.button("📤  Upload All Output Files to Databricks", key="tp_upload_output", use_container_width=True):
+                if st.button("📤  Upload All Output Files to Databricks", key="tp_upload_output", width='stretch'):
                     try:
                         ok, upload_errors = upload_directory_to_workspace(tp_out_dir, upload_dest)
                         if ok:

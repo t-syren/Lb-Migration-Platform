@@ -131,7 +131,7 @@ def handle_hive_variables(content: str):
             name = name.split(":", 1)[1]   # hivevar:region → region
 
         # ❌ Skip configs
-        if "." in name or name.startswith(CONFIG_PREFIXES):
+        if "." in name or name.lower().startswith(CONFIG_PREFIXES):
             continue
 
         vars_set.append((name, val.strip()))
@@ -140,7 +140,7 @@ def handle_hive_variables(content: str):
     # -------------------------------
     # 4. Collect variable names
     # -------------------------------
-    var_names = set(vars_inline + [v[0] for v in vars_set])
+    var_names = list(dict.fromkeys(vars_inline + [v[0] for v in vars_set]))
 
     # -------------------------------
     # 5. Extract variable values
@@ -156,7 +156,7 @@ def handle_hive_variables(content: str):
 
         # Quote if not already quoted
         if not val.startswith("'"):
-            val = f"'{val}'"
+            val = f"'{val.replace(chr(39), chr(39) + chr(39))}'"
 
         var_values[name] = val
 
@@ -168,7 +168,7 @@ def handle_hive_variables(content: str):
     for v in var_names:
         value = var_values.get(v, "'UNKNOWN'")
         declared_vars.append(
-            f"DECLARE OR REPLACE VARIABLE {v} STRING DEFAULT {value};"
+            f"DECLARE OR REPLACE VARIABLE `{v}` STRING DEFAULT {value};"
         )
 
     # -------------------------------
@@ -224,6 +224,102 @@ def handle_hive_variables(content: str):
     return content.strip(), declared_vars
 
 
+def _split_top_level_csv(value: str) -> list[str]:
+    parts = []
+    current = []
+    paren_depth = 0
+    angle_depth = 0
+    in_single = False
+    in_double = False
+    in_backtick = False
+
+    for char in value:
+        if char == "'" and not in_double and not in_backtick:
+            in_single = not in_single
+        elif char == '"' and not in_single and not in_backtick:
+            in_double = not in_double
+        elif char == "`" and not in_single and not in_double:
+            in_backtick = not in_backtick
+        elif not (in_single or in_double or in_backtick):
+            if char == "(":
+                paren_depth += 1
+            elif char == ")" and paren_depth:
+                paren_depth -= 1
+            elif char == "<":
+                angle_depth += 1
+            elif char == ">" and angle_depth:
+                angle_depth -= 1
+
+        if char == "," and paren_depth == 0 and angle_depth == 0 and not (in_single or in_double or in_backtick):
+            part = "".join(current).strip()
+            if part:
+                parts.append(part)
+            current = []
+        else:
+            current.append(char)
+
+    part = "".join(current).strip()
+    if part:
+        parts.append(part)
+    return parts
+
+
+def _partition_column_names(stmt: str) -> set[str]:
+    match = re.search(r"\bPARTITIONED\s+BY\s*\((.*?)\)", stmt, re.I | re.S)
+    if not match:
+        return set()
+
+    names = set()
+    for col_def in _split_top_level_csv(match.group(1)):
+        name_match = re.match(r"`?([A-Za-z_][\w]*)`?", col_def.strip())
+        if name_match:
+            names.add(name_match.group(1).lower())
+    return names
+
+
+def _remove_partition_columns_from_schema(stmt: str) -> str:
+    partition_cols = _partition_column_names(stmt)
+    if not partition_cols:
+        return stmt
+
+    match = re.search(r"(CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[\w\.]+)\s*\(", stmt, re.I)
+    if not match:
+        return stmt
+
+    open_pos = match.end() - 1
+    depth = 0
+    close_pos = None
+    for pos in range(open_pos, len(stmt)):
+        char = stmt[pos]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                close_pos = pos
+                break
+
+    if close_pos is None:
+        return stmt
+
+    schema = stmt[open_pos + 1:close_pos]
+    columns = _split_top_level_csv(schema)
+    kept_columns = []
+    removed = False
+    for col_def in columns:
+        name_match = re.match(r"`?([A-Za-z_][\w]*)`?", col_def.strip())
+        if name_match and name_match.group(1).lower() in partition_cols:
+            removed = True
+            continue
+        kept_columns.append(col_def)
+
+    if not removed:
+        return stmt
+
+    new_schema = ",\n    ".join(kept_columns)
+    return f"{stmt[:open_pos + 1]}\n    {new_schema}\n{stmt[close_pos:]}"
+
+
 def create_table_handler(stmt: str, location: str|None = None) -> str:
     original_stmt = stmt
     # Process only CREATE TABLE
@@ -238,6 +334,7 @@ def create_table_handler(stmt: str, location: str|None = None) -> str:
     # 2. Remove existing USING / LOCATION (clean state)
     stmt = re.sub(r"\bUSING\s+DELTA\b", "", stmt, flags=re.I)
     stmt = re.sub(r"\bLOCATION\s+'[^']+'", "", stmt, flags=re.I)
+    stmt = _remove_partition_columns_from_schema(stmt)
 
     # -----------------------------------
     # 3. Detect CTAS
@@ -384,8 +481,12 @@ def run_hive_transpiler(
     hive_exts = {".hql", ".hive", ".sql", ".ddl", ".dml"}
 
     errors = []
+    log_lines = []
     processed = 0
     generated = 0
+    llm_files_attempted = 0
+    llm_statements_replaced = 0
+    llm_failures = 0
 
     TRANSFORM_RULES = [
         (r"\bNVL\s*\(", "COALESCE("),
@@ -496,6 +597,9 @@ def run_hive_transpiler(
         llm = None
         if llm_endpoint and llm_api_key:
             llm = LLMConverter(api_key=llm_api_key, endpoint=llm_endpoint)
+            log_lines.append(f"{rel_path}: LLM enhancement enabled")
+        else:
+            log_lines.append(f"{rel_path}: LLM enhancement skipped - credentials not configured")
 
         # ----------------------------------
         # 🥇 STEP 1 — Process statements + track idx
@@ -659,7 +763,7 @@ def run_hive_transpiler(
         # ----------------------------------
         if llm and issues:
 
-            print(f"Call LLM for {rel_path} with {len(issues)} issues...")
+            log_lines.append(f"{rel_path}: LLM enhancement check found {len(issues)} issue(s)")
 
             # 🔹 Collect problematic stmt indexes
             problem_indexes = sorted({
@@ -672,7 +776,10 @@ def run_hive_transpiler(
                 })
 
             if problem_indexes:
-                print(f"  → Found {len(problem_indexes)} problematic statements")
+                llm_files_attempted += 1
+                log_lines.append(
+                    f"{rel_path}: calling LLM for {len(problem_indexes)} problematic statement(s)"
+                )
                 # 🔹 Build LLM input with markers
                 llm_blocks = []
                 for idx in problem_indexes:
@@ -685,8 +792,6 @@ def run_hive_transpiler(
                 filtered_issues = [
                     i for i in issues if i.get("idx") in problem_indexes
                 ]
-                print("LLM INPUT:\n", llm_input)
-
                 try:
                     llm_output = llm.code_convert_llm(
                         code=llm_input,
@@ -696,7 +801,6 @@ def run_hive_transpiler(
 
                     # 🔹 Clean output
                     llm_output = llm_output.replace("```sql", "").replace("```", "").strip()
-                    print("LLM OUTPUT:\n", llm_output)
 
                     # 🔹 Parse output using markers
                     stmt_map = {}
@@ -704,12 +808,13 @@ def run_hive_transpiler(
                     buffer = []
 
                     for line in llm_output.splitlines():
-                        if line.strip().startswith("-- STATEMENT_ID:"):
+                        marker = re.match(r"^\s*(?:--\s*)?STATEMENT_ID\s*:\s*(\d+)\s*$", line.strip(), re.I)
+                        if marker:
                             if current_id is not None:
                                 stmt_map[current_id] = "\n".join(buffer).strip()
                                 buffer = []
 
-                            current_id = int(line.split(":")[1].strip())
+                            current_id = int(marker.group(1))
                         else:
                             buffer.append(line)
 
@@ -717,27 +822,63 @@ def run_hive_transpiler(
                         stmt_map[current_id] = "\n".join(buffer).strip()
 
                     # 🔹 Replace safely
+                    if not stmt_map:
+                        log_lines.append(
+                            f"{rel_path}: LLM output was received but no STATEMENT_ID markers were found"
+                        )
+
                     replaced = 0
+                    skipped = 0
                     for idx, new_sql in stmt_map.items():
+
+                        if idx >= len(cleaned_stmts):
+                            skipped += 1
+                            log_lines.append(
+                                f"{rel_path}: LLM output skipped for unknown statement id {idx}"
+                            )
+                            continue
 
                         original_sql = cleaned_stmts[idx]["sql"]
 
                         if len(new_sql) < 10:
+                            skipped += 1
+                            log_lines.append(
+                                f"{rel_path}: LLM output skipped for statement {idx} - output too short"
+                            )
                             continue
 
                         if "INSERT" in original_sql.upper() and "INSERT" not in new_sql.upper():
+                            skipped += 1
+                            log_lines.append(
+                                f"{rel_path}: LLM output skipped for statement {idx} - INSERT guard failed"
+                            )
                             continue
 
                         if "PARTITION" in original_sql.upper() and "PARTITION" not in new_sql.upper():
+                            skipped += 1
+                            log_lines.append(
+                                f"{rel_path}: LLM output skipped for statement {idx} - PARTITION guard failed"
+                            )
                             continue
 
                         cleaned_stmts[idx]["sql"] = new_sql.strip()
                         replaced += 1
 
-                    print(f"  ✅ LLM replaced {replaced} statements")
+                    llm_statements_replaced += replaced
+                    log_lines.append(
+                        f"{rel_path}: LLM enhanced output applied to {replaced} statement(s), skipped {skipped}"
+                    )
 
                 except Exception as e:
+                    llm_failures += 1
+                    log_lines.append(f"{rel_path}: LLM enhancement failed - {e}")
                     logger.error(f"LLM failed: {e}")
+            else:
+                log_lines.append(
+                    f"{rel_path}: LLM not called - no ERROR/BLOCKER statements found"
+                )
+        elif llm:
+            log_lines.append(f"{rel_path}: LLM enhancement not required - no issues found")
         # ================================           
         # 🔥 OUTPUT 
         # ===============================
@@ -772,14 +913,26 @@ def run_hive_transpiler(
                 "spark = SparkSession.builder.getOrCreate()",
                 "",
                 ]
+            if catalog.strip():
+                lines.append(f'spark.sql("""USE CATALOG {catalog};""")')
+
+            if schema.strip():
+                lines.append(f'spark.sql("""USE {schema};""")')
 
             for var in declared_vars:
                 lines.append(f'spark.sql("""{var}""")')
                 # lines.append(f'spark.conf.set("{var}", "{declared_vars[var].strip()}")')
 
             for stmt in cleaned_stmts:
-                sql = stmt["sql"].rstrip(";") + ";"
-                lines.append(f'spark.sql("""{sql}""")')
+                statement_parts = split_sql_statements(stmt["sql"])
+                if not statement_parts:
+                    statement_parts = [(stmt["sql"], 1)]
+
+                for statement_sql, _line_no in statement_parts:
+                    sql = statement_sql.strip().rstrip(";") + ";"
+                    if sql == ";":
+                        continue
+                    lines.append(f'spark.sql("""{sql}""")')
 
             if issues:
                 lines.append("\n# ---⚠️ Issues:")
@@ -800,9 +953,21 @@ def run_hive_transpiler(
     if errors:
         Path(err_file).write_text("\n".join(errors), encoding="utf-8")
 
+    summary = f"{processed} processed, {generated} generated"
+    if llm_endpoint and llm_api_key:
+        summary += (
+            f"\nLLM enhancement: {llm_files_attempted} file(s) sent, "
+            f"{llm_statements_replaced} statement(s) replaced"
+        )
+        if llm_failures:
+            summary += f", {llm_failures} failure(s)"
+
+    if log_lines:
+        summary += "\n\nDetails:\n" + "\n".join(log_lines)
+
     return (
         generated > 0,
-        f"{processed} processed, {generated} generated",
+        summary,
         "\n".join(errors),
     )
 

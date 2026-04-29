@@ -94,6 +94,21 @@ class TestToDatabricksJob:
         deps = [d["task_key"] for d in task_map["ingest-transactions"].get("depends_on", [])]
         assert "ingest-customers" in deps
 
+    def test_notebook_base_parameters_are_strings(self):
+        job = to_databricks_job(self.actions, job_name="retail-etl")
+        for task in job["tasks"]:
+            notebook_task = task.get("notebook_task")
+            if not notebook_task:
+                continue
+            base_parameters = notebook_task.get("base_parameters", {})
+            assert all(isinstance(value, str) for value in base_parameters.values())
+
+    def test_shell_arguments_are_joined_for_base_parameters(self):
+        job = to_databricks_job(self.actions, job_name="retail-etl")
+        task_map = {t["task_key"]: t for t in job["tasks"]}
+        base_parameters = task_map["export-report"]["notebook_task"]["base_parameters"]
+        assert base_parameters["args"] == "${txnDate},${reportPath}"
+
 
 class TestWorkflowToJson:
     def test_returns_valid_json(self):
