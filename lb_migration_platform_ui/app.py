@@ -937,6 +937,9 @@ def run_lakebridge(src: str, out: str, tech: int) -> tuple[bool, str, str]:
     if not env.get("DATABRICKS_HOST") or not env.get("DATABRICKS_TOKEN"):
         return False, "", "Host and PAT are required to run Lakebridge. Set them in Settings or via environment variables."
 
+    # Force PAT auth so the SDK doesn't fall back to a stale databricks-cli OAuth session
+    env["DATABRICKS_AUTH_TYPE"] = "pat"
+
     try:
         proc = subprocess.run(
             ["databricks", "labs", "lakebridge", "analyze"],
@@ -1125,11 +1128,15 @@ def run_transpiler(
         cmd += ["--catalog-name", catalog.strip()]
     if schema.strip():
         cmd += ["--schema-name", schema.strip()]
+    env = os.environ.copy()
+    # Force PAT auth so the SDK doesn't fall back to a stale databricks-cli OAuth session
+    env["DATABRICKS_AUTH_TYPE"] = "pat"
+
     try:
         proc = subprocess.run(
             cmd,
             capture_output=True, text=True,
-            timeout=600, env=os.environ.copy(),
+            timeout=600, env=env,
         )
         ok = proc.returncode == 0 or any(Path(out_dir).rglob("*"))
         return ok, proc.stdout, proc.stderr
