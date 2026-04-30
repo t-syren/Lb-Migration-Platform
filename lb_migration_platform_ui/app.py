@@ -7,7 +7,9 @@ Designed to be hosted on Databricks Apps.
 """
 
 import io
+import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -23,7 +25,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from modules.oozie_converter import workflow_to_json, parse_workflow
-from modules.databricks_service import DatabricksClient
+from modules.databricks_service import DatabricksClient, get_databricks_credentials
+from modules.sql_transpiler import run_hive_transpiler
+from modules.llm_converter import LLMConverter, load_prompt
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DATA — ANALYZER
@@ -256,7 +260,7 @@ section[data-testid="stSidebar"] .stRadio label[data-checked="true"] {
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
 div[data-testid="stButton"] button {
-    background: #0f172a !important; color: #f1f5f9 !important;
+    background: #FF3621 !important; color: #f1f5f9 !important;
     border: none !important; border-radius: 8px !important;
     font-weight: 600 !important; font-size: 0.92rem !important;
     padding: 0.6rem 2rem !important;
@@ -306,10 +310,20 @@ div[data-testid="stButton"] button:disabled {
     background: #0f172a; color: #e2e8f0; border-radius: 10px;
     padding: 1rem 1.25rem; font-family: 'Courier New', monospace; font-size: 0.82rem;
     line-height: 1.7; max-height: 360px; overflow-y: auto;
+    width: 100%; max-width: 100%;
+    overflow-x: auto;
+    white-space: nowrap;  
+    word-break: break-word;        /* break long filenames */
 }
-.file-tree .dir  { color: #60a5fa; font-weight: 600; }
+.file-tree .dir  { color: #FF3621; font-weight: 600; }
 .file-tree .file { color: #86efac; }
 .file-tree .meta { color: #475569; }
+
+.output-block {
+    background: #0f172a; border: 1px solid #334155; border-radius: 0.85rem;
+    padding: 0.85rem; max-height: 42vh; overflow-y: auto;
+    white-space: pre-wrap; word-break: break-word;
+}
 
 /* ── Info box ────────────────────────────────────────────────────────────── */
 .info-box {
@@ -368,6 +382,102 @@ def _workspace_language_for_path(path: str) -> str:
         return "PYTHON"
     return "PYTHON"
 
+def set_databricks_env(host: str, token: str):
+    host = (host or "").strip()
+    token = (token or "").strip()
+
+    if not host or not token:
+        raise ValueError("Both Databricks Host and PAT are required")
+
+    os.environ["DATABRICKS_HOST"] = host
+    os.environ["DATABRICKS_TOKEN"] = token
+
+
+def set_llm_env(endpoint: str, api_key: str):
+    """Set LLM credentials in environment variables."""
+    endpoint = (endpoint or "").strip()
+    api_key = (api_key or "").strip()
+
+    if not endpoint or not api_key:
+        raise ValueError("Both LLM Endpoint and API Key are required")
+
+    os.environ["LLM_ENDPOINT"] = endpoint
+    os.environ["LLM_API_KEY"] = api_key
+
+
+def test_llm_connection(endpoint: str, api_key: str) -> tuple[bool, str]:
+    endpoint = endpoint.strip()
+    api_key = api_key.strip()
+
+    if not (endpoint and api_key):
+        return False, "Both LLM Endpoint and API Key are required"
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+
+    # minimal valid payload
+    payload = {
+        "messages": [
+            {"role": "user", "content": "Hello"}
+        ],
+        "max_tokens": 5,
+        "temperature": 0
+    }
+
+    try:
+        import requests
+
+        response = requests.post(
+            endpoint,
+            headers=headers,
+            json=payload,
+            timeout=15
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+
+            # basic validation
+            if "choices" in data:
+                return True, "LLM connection successful"
+            else:
+                return False, "LLM responded but invalid format"
+
+        elif response.status_code == 401:
+            return False, "Invalid API key"
+
+        elif response.status_code == 404:
+            return False, "Invalid endpoint URL"
+
+        else:
+            return False, f"LLM error: {response.status_code} - {response.text}"
+
+    except Exception as e:
+        return False, f"Connection failed: {str(e)}"
+
+
+def clear_databricks_credentials():
+    """Clear Databricks credentials from environment and session state."""
+    # Remove from environment
+    os.environ.pop("DATABRICKS_HOST", None)
+    os.environ.pop("DATABRICKS_TOKEN", None)
+    
+    # Remove from session state
+    st.session_state.pop("sb_db_host", None)
+    st.session_state.pop("sb_db_token", None)
+
+
+def clear_llm_credentials():
+    """Clear LLM credentials from environment and session state."""
+    # Remove from environment
+    os.environ.pop("LLM_ENDPOINT", None)
+    os.environ.pop("LLM_API_KEY", None)
+    
+    # Remove from session state
+    st.session_state.pop("sb_llm_endpoint", None)
+    st.session_state.pop("sb_llm_api_key", None)
 
 def _ensure_workspace_folder(client: DatabricksClient, folder_path: str) -> None:
     folder_path = folder_path.strip()
@@ -423,9 +533,152 @@ def clear_transpile_output_state() -> None:
         shutil.rmtree(existing, ignore_errors=True)
 
 
+def clear_databricks_workspace_selection_state() -> None:
+    for key in [
+        "ws_selected_files",
+        "ws_items",
+        "ws_path",
+        "last_loaded_path",
+        "source_mode",
+        "tp_ws_selected_files",
+        "tp_ws_items",
+        "tp_ws_path",
+        "tp_last_loaded_path",
+        "tp_source_mode",
+    ]:
+        st.session_state.pop(key, None)
+
+
 def store_transpile_output_state(out_dir: str, info: dict) -> None:
     st.session_state["tp_out_dir"] = out_dir
     st.session_state["tp_output_info"] = info
+
+
+def extract_llm_enhancement_counts(stdout: str) -> tuple[int, int, int] | None:
+    match = re.search(
+        r"LLM enhancement:\s*(\d+)\s+file\(s\)\s+sent,\s+(\d+)\s+statement\(s\)\s+replaced(?:,\s+(\d+)\s+failure\(s\))?",
+        stdout or "",
+    )
+    if not match:
+        return None
+
+    return int(match.group(1)), int(match.group(2)), int(match.group(3) or 0)
+
+
+def extract_llm_enhancement_summary(stdout: str) -> str | None:
+    counts = extract_llm_enhancement_counts(stdout)
+    if not counts:
+        return None
+
+    files_sent, statements_replaced, failures = counts
+
+    if files_sent == 0:
+        return "LLM enhancement skipped - no problematic statements required LLM review"
+
+    file_label = "file" if files_sent == 1 else "files"
+    summary = f"LLM enhancement completed for {files_sent} {file_label} with {statements_replaced} statement(s)"
+    if failures:
+        summary += f" with {failures} failure(s)"
+    return summary
+
+
+def render_transpile_metric_cards(
+    n_src: int,
+    n_out: int,
+    elapsed: float,
+    llm_files_sent: int = 0,
+    llm_statements_replaced: int = 0,
+) -> None:
+    metric_columns = st.columns(4 if llm_files_sent else 3)
+    with metric_columns[0]:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">ðŸ“</div>
+            <div class="metric-val">{n_src}</div>
+            <div class="metric-lbl">Files Processed</div>
+        </div>""", unsafe_allow_html=True)
+    with metric_columns[1]:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">âœ…</div>
+            <div class="metric-val">{n_out}</div>
+            <div class="metric-lbl">Files Generated</div>
+        </div>""", unsafe_allow_html=True)
+    if llm_files_sent:
+        with metric_columns[2]:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-icon">LLM</div>
+                <div class="metric-val">{llm_files_sent}</div>
+                <div class="metric-lbl">LLM Enhanced ({llm_statements_replaced} statement{'s' if llm_statements_replaced != 1 else ''})</div>
+            </div>""", unsafe_allow_html=True)
+    with metric_columns[-1]:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">âš¡</div>
+            <div class="metric-val">{elapsed:.1f}s</div>
+            <div class="metric-lbl">Time Taken</div>
+        </div>""", unsafe_allow_html=True)
+
+
+def render_oozie_workflow_create_section(tp_out_dir: str, key_suffix: str) -> None:
+    json_files = sorted(
+        [p for p in Path(tp_out_dir).rglob("*.json")],
+        key=lambda p: str(p),
+    )
+    if not json_files:
+        st.warning("No Databricks Workflow JSON was found to create.")
+        return
+
+    selected_file = json_files[0]
+    if len(json_files) > 1:
+        file_labels = [str(p.relative_to(tp_out_dir)) for p in json_files]
+        selected_label = st.selectbox(
+            "Workflow JSON",
+            options=file_labels,
+            key=f"create_oozie_workflow_file_{key_suffix}",
+        )
+        selected_file = json_files[file_labels.index(selected_label)]
+
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        create_clicked = st.button(
+            "Create Databricks Workflow",
+            key=f"create_oozie_workflow_{key_suffix}",
+            width='stretch',
+        )
+
+    if not create_clicked:
+        with col2:
+            st.caption(f"Ready to create from `{selected_file.name}`.")
+        return
+
+    with col2:
+        with st.spinner("Creating workflow..."):
+            try:
+                host, token = get_databricks_credentials()
+                if not host or not token:
+                    st.error(
+                        "Databricks credentials not found. Go to Settings and provide "
+                        "the workspace URL and personal access token."
+                    )
+                    return
+
+                job_payload = json.loads(selected_file.read_text(encoding="utf-8"))
+                dbx = DatabricksClient.from_app_context()
+                response = dbx.create_job(job_payload)
+
+                if "job_id" in response:
+                    job_id = response["job_id"]
+                    st.success(f"Workflow created. Job ID: {job_id}")
+                    st.markdown(f"[Open Job]({dbx.workspace_url}/#job/{job_id})")
+                    return
+
+                st.error(f"Failed to create workflow: {response.get('error', 'Unknown error')}")
+            except json.JSONDecodeError as exc:
+                st.error(f"Workflow JSON is invalid: {exc}")
+            except Exception as exc:
+                st.error(f"Deployment error: {exc}")
 
 
 def render_transpile_output_section() -> None:
@@ -463,6 +716,7 @@ def render_transpile_output_section() -> None:
             '</div>',
             unsafe_allow_html=True,
         )
+        render_oozie_workflow_create_section(tp_out_dir, "main")
 
     st.markdown("""
     <div class="results-header">
@@ -471,31 +725,49 @@ def render_transpile_output_section() -> None:
         </div>
     </div>
     """, unsafe_allow_html=True)
+    render_transpile_metrics(
+        n_src=n_src,
+        n_out=n_out,
+        elapsed=elapsed,
+        llm_counts=(
+            info.get("llm_files_sent", 0),
+            info.get("llm_statements_replaced", 0)
+        )
+    )
+    # mc1, mc2, mc3 = st.columns(3)
+    # with mc1:
+    #     st.markdown(f"""
+    #     <div class="metric-card">
+    #         <div class="metric-icon">📁</div>
+    #         <div class="metric-val">{n_src}</div>
+    #         <div class="metric-lbl">Files Processed</div>
+    #     </div>""", unsafe_allow_html=True)
+    # with mc2:
+    #     st.markdown(f"""
+    #     <div class="metric-card">
+    #         <div class="metric-icon">✅</div>
+    #         <div class="metric-val">{n_out}</div>
+    #         <div class="metric-lbl">Files Generated</div>
+    #     </div>""", unsafe_allow_html=True)
+    # with mc3:
+    #     st.markdown(f"""
+    #     <div class="metric-card">
+    #         <div class="metric-icon">⚡</div>
+    #         <div class="metric-val">{elapsed:.1f}s</div>
+    #         <div class="metric-lbl">Time Taken</div>
+    #     </div>""", unsafe_allow_html=True)
 
-    mc1, mc2, mc3 = st.columns(3)
-    with mc1:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-icon">📁</div>
-            <div class="metric-val">{n_src}</div>
-            <div class="metric-lbl">Files Processed</div>
-        </div>""", unsafe_allow_html=True)
-    with mc2:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-icon">✅</div>
-            <div class="metric-val">{n_out}</div>
-            <div class="metric-lbl">Files Generated</div>
-        </div>""", unsafe_allow_html=True)
-    with mc3:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-icon">⚡</div>
-            <div class="metric-val">{elapsed:.1f}s</div>
-            <div class="metric-lbl">Time Taken</div>
-        </div>""", unsafe_allow_html=True)
+    # if info.get("llm_files_sent", 0):
+    #     llm_metric_col, _, _ = st.columns([1, 2, 2])
+    #     with llm_metric_col:
+    #         st.markdown(f"""
+    #         <div class="metric-card">
+    #             <div class="metric-icon">LLM</div>
+    #             <div class="metric-val">{info.get("llm_statements_replaced", 0)}</div>
+    #             <div class="metric-lbl">LLM Enhanced ({info.get("llm_files_sent", 0)} file{'s' if info.get("llm_files_sent", 0) != 1 else ''})</div>
+    #         </div>""", unsafe_allow_html=True)
 
-    st.markdown("<div style='height:1.25rem'></div>", unsafe_allow_html=True)
+    # st.markdown("<div style='height:1.25rem'></div>", unsafe_allow_html=True)
 
     zip_bytes = zip_directory(tp_out_dir)
     zip_name = f"transpiled_{dialect_cli}_{target_cli.lower()}.zip"
@@ -507,7 +779,7 @@ def render_transpile_output_section() -> None:
             file_name=zip_name,
             mime="application/zip",
             key="tp_download_all_output_helper",
-            use_container_width=True,
+            width='stretch',
         )
     with info_col:
         st.markdown(f"""
@@ -530,7 +802,7 @@ def render_transpile_output_section() -> None:
         upload_dest = "/" + upload_dest
         st.session_state["tp_upload_dest"] = upload_dest
 
-    if st.button("📤  Upload All Output Files to Databricks", key="tp_upload_output", use_container_width=True):
+    if st.button("📤  Upload All Output Files to Databricks", key="tp_upload_output", width='stretch'):
         try:
             ok, upload_errors = upload_directory_to_workspace(tp_out_dir, upload_dest)
             if ok:
@@ -608,60 +880,21 @@ def fetch_workspace_files_to_local(paths):
     return temp_dir
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CREDENTIALS HELPER
+# DATABRICKS CREDENTIALS HELPER
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_env() -> dict:
-    """Return os.environ with any user-supplied Databricks credentials injected.
-
-    Values come from st.session_state keys set by the Settings tab:
-      - sb_db_host   → DATABRICKS_HOST
-      - sb_db_token  → DATABRICKS_TOKEN
-      - sb_db_profile → DATABRICKS_CONFIG_PROFILE
-    If the keys are empty or absent the existing environment values are used.
-    """
-    sync_databricks_env_from_session_state()
-    env = os.environ.copy()
-    host = st.session_state.get("sb_db_host", "").strip()
-    token = st.session_state.get("sb_db_token", "").strip()
-    profile = st.session_state.get("sb_db_profile", "").strip()
-    if host:
-        env["DATABRICKS_HOST"] = host
-    if token:
-        env["DATABRICKS_TOKEN"] = token
-    if profile:
-        env["DATABRICKS_CONFIG_PROFILE"] = profile
-    return env
 
 
-def sync_databricks_env_from_session_state() -> None:
-    host = st.session_state.get("sb_db_host", "").strip()
-    token = st.session_state.get("sb_db_token", "").strip()
-    profile = st.session_state.get("sb_db_profile", "").strip()
-
-    if host:
-        os.environ["DATABRICKS_HOST"] = host
-    if token:
-        os.environ["DATABRICKS_TOKEN"] = token
-    if profile:
-        os.environ["DATABRICKS_CONFIG_PROFILE"] = profile
-
-
-def test_databricks_workspace_connection(host: str, token: str, profile: str = "") -> tuple[bool, str]:
+def test_databricks_workspace_connection(host: str, token: str) -> tuple[bool, str]:
     """Validate the provided Databricks host and PAT by listing workspace files."""
     host = host.strip()
     token = token.strip()
-    profile = profile.strip()
 
-    if not (host and token) and not profile:
-        return False, "Host and PAT are required for workspace validation unless a CLI profile is configured."
+    if not (host and token):
+        return False, "Host and PAT are required for workspace validation."
 
     try:
-        if host and token:
-            client = DatabricksClient(host, token)
-        else:
-            client = DatabricksClient.from_app_context()
-
+        client = DatabricksClient(host, token)
         items = client.list_workspace_items("/")
         if isinstance(items, dict) and items.get("error"):
             return False, items["error"]
@@ -672,10 +905,14 @@ def test_databricks_workspace_connection(host: str, token: str, profile: str = "
 
 
 def test_databricks_cli_connection() -> tuple[bool, str]:
+    env = os.environ.copy()
+    if not env.get("DATABRICKS_HOST") or not env.get("DATABRICKS_TOKEN"):
+        return False, "Host and PAT are required to test the Databricks CLI connection."
+
     try:
         result = subprocess.run(
             ["databricks", "auth", "status"],
-            capture_output=True, text=True, timeout=30, env=get_env(),
+            capture_output=True, text=True, timeout=30, env=env,
         )
         if result.returncode == 0:
             return True, result.stdout.strip() or "Databricks CLI is authenticated."
@@ -696,11 +933,15 @@ def test_databricks_cli_connection() -> tuple[bool, str]:
 
 def run_lakebridge(src: str, out: str, tech: int) -> tuple[bool, str, str]:
     payload = f"{src}\n{out}\n{tech}\n"
+    env = os.environ.copy()
+    if not env.get("DATABRICKS_HOST") or not env.get("DATABRICKS_TOKEN"):
+        return False, "", "Host and PAT are required to run Lakebridge. Set them in Settings or via environment variables."
+
     try:
         proc = subprocess.run(
             ["databricks", "labs", "lakebridge", "analyze"],
             input=payload, capture_output=True, text=True,
-            timeout=600, env=get_env(),
+            timeout=600, env=env,
         )
         return proc.returncode == 0 or os.path.exists(out), proc.stdout, proc.stderr
     except subprocess.TimeoutExpired:
@@ -888,7 +1129,7 @@ def run_transpiler(
         proc = subprocess.run(
             cmd,
             capture_output=True, text=True,
-            timeout=600, env=get_env(),
+            timeout=600, env=os.environ.copy(),
         )
         ok = proc.returncode == 0 or any(Path(out_dir).rglob("*"))
         return ok, proc.stdout, proc.stderr
@@ -904,135 +1145,6 @@ def run_transpiler(
     except Exception as e:
         return False, "", str(e)
 
-
-def run_hive_transpiler(
-    src_dir: str,
-    out_dir: str,
-    err_file: str,
-    target: str,
-    catalog: str = "",
-    schema: str = "",
-) -> tuple[bool, str, str]:
-    """
-    Custom HiveSQL → SparkSQL / PySpark transpiler powered by sqlglot.
-    Bypasses the lakebridge CLI (which has no Hive dialect) and processes
-    .hql / .hive / .sql / .ddl / .dml files directly in Python.
-    """
-    try:
-        import sqlglot
-    except ImportError:
-        return False, "", (
-            "`sqlglot` is not installed.\n"
-            "Run:  pip install 'sqlglot>=23.0.0'"
-        )
-
-    src_root = Path(src_dir)
-    out_root = Path(out_dir)
-    hive_exts = {".hql", ".hive", ".sql", ".ddl", ".dml"}
-
-    errors: list[str] = []
-    processed = 0
-    generated = 0
-
-    for src_file in sorted(src_root.rglob("*")):
-        if not src_file.is_file() or src_file.suffix.lower() not in hive_exts:
-            continue
-
-        processed += 1
-        rel_path = src_file.relative_to(src_root)
-
-        try:
-            content = src_file.read_text(encoding="utf-8", errors="replace")
-        except Exception as exc:
-            errors.append(f"{rel_path}: could not read — {exc}")
-            continue
-
-        # ── Transpile with sqlglot ───────────────────────────────────────────
-        try:
-            converted_stmts = sqlglot.transpile(
-                content,
-                read="hive",
-                write="databricks",
-                pretty=True,
-                error_level=sqlglot.ErrorLevel.WARN,
-            )
-        except Exception as exc:
-            errors.append(f"{rel_path}: parse/transpile error — {exc}")
-            continue
-
-        if not converted_stmts:
-            errors.append(f"{rel_path}: no SQL statements found")
-            continue
-
-        # ── Build output content ─────────────────────────────────────────────
-        if target == "SPARKSQL":
-            out_ext = ".sql"
-            lines: list[str] = [
-                f"-- Transpiled from HiveSQL  |  source: {src_file.name}",
-                f"-- Engine: sqlglot (hive → spark)  |  target: SparkSQL / Databricks",
-                "",
-            ]
-            if catalog.strip():
-                lines += [f"USE CATALOG {catalog.strip()};", ""]
-            if schema.strip():
-                lines += [f"USE {schema.strip()};", ""]
-            for stmt in converted_stmts:
-                if stmt.strip():
-                    lines.append(stmt.rstrip(";") + ";")
-                    lines.append("")
-            out_content = "\n".join(lines)
-
-        else:  # PYSPARK
-            out_ext = ".py"
-            lines = [
-                "# -*- coding: utf-8 -*-",
-                '"""',
-                f"Transpiled from HiveSQL  |  source: {src_file.name}",
-                "Engine: sqlglot (hive → spark)  |  target: PySpark / Databricks",
-                '"""',
-                "",
-                "from pyspark.sql import SparkSession",
-                "",
-                "spark = SparkSession.builder.getOrCreate()",
-                "",
-            ]
-            if catalog.strip():
-                lines += [f'spark.sql("USE CATALOG {catalog.strip()}")', ""]
-            if schema.strip():
-                lines += [f'spark.sql("USE {schema.strip()}")', ""]
-            for i, stmt in enumerate(converted_stmts, start=1):
-                if not stmt.strip():
-                    continue
-                safe_stmt = stmt.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
-                lines += [
-                    f"# ── Statement {i} ──",
-                    f'spark.sql("""',
-                    safe_stmt,
-                    '""")',
-                    "",
-                ]
-            out_content = "\n".join(lines)
-
-        # ── Write output file ────────────────────────────────────────────────
-        out_file = out_root / rel_path.with_suffix(out_ext)
-        out_file.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            out_file.write_text(out_content, encoding="utf-8")
-            generated += 1
-        except Exception as exc:
-            errors.append(f"{rel_path}: could not write output — {exc}")
-
-    # ── Error log ────────────────────────────────────────────────────────────
-    if errors:
-        Path(err_file).write_text("\n".join(errors), encoding="utf-8")
-
-    stdout = (
-        f"HiveSQL transpiler (sqlglot → Databricks SQL): {processed} file(s) processed, "
-        f"{generated} file(s) generated."
-        + (f"  {len(errors)} error(s) — see log." if errors else "")
-    )
-    stderr = "\n".join(errors) if (errors and generated == 0) else ""
-    return generated > 0, stdout, stderr
 
 
 def run_oozie_converter(
@@ -1105,6 +1217,70 @@ def build_file_tree_html(directory: str) -> tuple[str, int, int]:
             )
     return "<br>".join(lines) if lines else '<span class="meta">No files found.</span>', total_files, total_bytes
 
+def classify_error(stderr: str):
+    if "Invalid value for '--source-dialect'" in stderr:
+        return "UNSUPPORTED_DIALECT"
+    if "No such file or directory" in stderr:
+        return "INPUT_PATH_ERROR"
+    if "authentication" in stderr.lower():
+        return "AUTH_ERROR"
+    return "UNKNOWN"
+
+def render_transpile_metrics(n_src, n_out, elapsed, llm_counts=(0, 0)):
+    """
+    llm_counts = (llm_files_sent, llm_statements_replaced)
+    Only llm_files_sent is used for display.
+    """
+
+    llm_files_sent = llm_counts[0]
+
+    # decide columns
+    num_cols = 4 if llm_files_sent else 3
+    cols = st.columns(num_cols)
+
+    idx = 0
+
+    # Files processed
+    with cols[idx]:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">📁</div>
+            <div class="metric-val">{n_src}</div>
+            <div class="metric-lbl">Files Processed</div>
+        </div>""", unsafe_allow_html=True)
+    idx += 1
+
+    # Files generated
+    with cols[idx]:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">✅</div>
+            <div class="metric-val">{n_out}</div>
+            <div class="metric-lbl">Files Generated</div>
+        </div>""", unsafe_allow_html=True)
+    idx += 1
+
+    # LLM card (only if present)
+    if llm_files_sent:
+        with cols[idx]:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-icon">AI</div>
+                <div class="metric-val">{llm_files_sent}</div>
+                <div class="metric-lbl">files enhanced</div>
+            </div>""", unsafe_allow_html=True)
+        idx += 1
+
+    # Time taken
+    with cols[idx]:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">⚡</div>
+            <div class="metric-val">{elapsed:.1f}s</div>
+            <div class="metric-lbl">Time Taken</div>
+        </div>""", unsafe_allow_html=True)
+
+    st.markdown("<div style='height:1.25rem'></div>", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SIDEBAR NAVIGATION
@@ -1467,7 +1643,7 @@ elif selected_page == "Analyzer":
         with tab2:
             from modules.databricks_service import DatabricksClient
 
-            st.markdown("#### 🔗 Browse Databricks Workspace")
+            st.markdown("#### 🔗 Browse Workspace")
 
             try:
                 dbx = DatabricksClient.from_app_context()
@@ -1509,63 +1685,74 @@ elif selected_page == "Analyzer":
 
                 items = st.session_state.get("ws_items", [])
 
-                if items:
-                    dirs = [o for o in items if o.get("object_type") == "DIRECTORY"]
-                    files = [o for o in items if o.get("object_type") in ["NOTEBOOK", "FILE"]]
-
-                    # ─────────────────────────────────────────
-                    # BACK BUTTON
-                    # ─────────────────────────────────────────
-                    if current_path != "/":
-                        parent = "/".join(current_path.rstrip("/").split("/")[:-1]) or "/"
+                # Show navigation buttons if not at root
+                if current_path != "/":
+                    parent = "/".join(current_path.rstrip("/").split("/")[:-1]) or "/"
+                    back_col, home_col = st.columns([1, 1], gap="small")
+                    with back_col:
                         if st.button("⬅️ Back", key="ws_back"):
                             st.session_state["ws_path"] = parent
                             st.session_state.pop("ws_items", None)
                             st.session_state.pop("last_loaded_path", None)
                             st.rerun()
+                    with home_col:
+                        if st.button("🏠 Home", key="ws_home"):
+                            st.session_state["ws_path"] = "/"
+                            st.session_state.pop("ws_items", None)
+                            st.session_state.pop("last_loaded_path", None)
+                            st.rerun()
 
-                    # ─────────────────────────────────────────
-                    # FOLDERS
-                    # ─────────────────────────────────────────
-                    if dirs:
-                        st.markdown("##### 📁 Folders")
+                if items:
+                    dirs = [o for o in items if o.get("object_type") == "DIRECTORY"]
+                    files = [o for o in items if o.get("object_type") in ["NOTEBOOK", "FILE"]]
 
-                        for obj in dirs:
-                            path = obj.get("path")
-                            name = path.rstrip("/").split("/")[-1]
-                            button_key = make_widget_key("dir", path)
+                    # 🔥 REAL SCROLL CONTAINER
+                    container = st.container(height=350)
 
-                            if st.button(f"📁 {name}", key=button_key):
-                                st.session_state["ws_path"] = path
-                                st.session_state.pop("ws_items", None)
-                                st.session_state.pop("last_loaded_path", None)
-                                st.rerun()
-                    # ─────────────────────────────────────────
-                    if files:
-                        st.markdown("##### 📄 Select files")
+                    with container:
+                        # ─────────────────────────────────────────
+                        # FOLDERS
+                        # ─────────────────────────────────────────
+                        if dirs:
+                            st.markdown("##### 📁 Folders")
 
-                        selected_paths = set(st.session_state.get("ws_selected_files", []))
-                        for obj in files:
-                            path = obj.get("path")
+                            for obj in dirs:
+                                path = obj.get("path")
+                                name = path.rstrip("/").split("/")[-1]
+                                button_key = make_widget_key("dir", path)
 
-                            if any(path.lower().endswith(f".{ext}") for ext in tech_exts):
-                                checkbox_key = make_widget_key("ws", path)
-                                checked = st.checkbox(path, value=(path in selected_paths), key=checkbox_key)
-                                if checked:
-                                    selected_paths.add(path)
-                                else:
-                                    selected_paths.discard(path)
+                                if st.button(f"📁 {name}", key=button_key):
+                                    st.session_state["ws_path"] = path
+                                    st.session_state.pop("ws_items", None)
+                                    st.session_state.pop("last_loaded_path", None)
+                                    st.rerun()
 
-                        st.session_state["ws_selected_files"] = sorted(selected_paths)
+                    # ─────────────────── files ──────────────────────
+                        if files:
+                            st.markdown("##### 📄 Select files")
 
-                        if selected_paths:
-                            st.success(f"✅ {len(selected_paths)} file(s) selected")
-                            st.session_state["source_mode"] = "workspace"
+                            selected_paths = set(st.session_state.get("ws_selected_files", []))
+                            for obj in files:
+                                path = obj.get("path")
+
+                                if any(path.lower().endswith(f".{ext}") for ext in tech_exts):
+                                    checkbox_key = make_widget_key("ws", path)
+                                    checked = st.checkbox(path, value=(path in selected_paths), key=checkbox_key)
+                                    if checked:
+                                        selected_paths.add(path)
+                                    else:
+                                        selected_paths.discard(path)
+
+                            st.session_state["ws_selected_files"] = sorted(selected_paths)
+
+                            if selected_paths:
+                                st.success(f"✅ {len(selected_paths)} file(s) selected")
+                                st.session_state["source_mode"] = "workspace"
+                            else:
+                                st.info("No files selected")
+
                         else:
-                            st.info("No files selected")
-
-                    else:
-                        st.info("No valid files in this folder")
+                            st.info("No valid files in this folder")
 
                 else:
                     st.info("No items found in this path")
@@ -1598,7 +1785,7 @@ elif selected_page == "Analyzer":
     with btn_col:
         run_clicked = st.button(
             "🚀  Analyse",
-            use_container_width=True,
+            width='stretch',
             disabled=not bool(uploaded_files or st.session_state.get("ws_selected_files")),
             key="run_analyze",
         )
@@ -1670,10 +1857,18 @@ elif selected_page == "Analyzer":
 
             if stdout:
                 with st.expander("📋 Full analysis log"):
-                    st.code(stdout, language="text")
+                    log_container = st.container(height=400)
+                    with log_container:
+                        st.markdown("<div class='output-block'>", unsafe_allow_html=True)
+                        st.code(stdout, language="text")
+                        st.markdown("</div>", unsafe_allow_html=True)
             if stderr and not ok:
                 with st.expander("❗ Errors / warnings"):
-                    st.code(stderr, language="text")
+                    error_container = st.container(height=400)
+                    with error_container:
+                        st.markdown("<div class='output-block'>", unsafe_allow_html=True)
+                        st.code(stderr, language="text")
+                        st.markdown("</div>", unsafe_allow_html=True)
 
             if not report_ok:
                 st.error("Lakebridge did not generate a valid Excel report.")
@@ -1719,19 +1914,19 @@ elif selected_page == "Analyzer":
                     ch1, ch2 = st.columns(2) 
                     with ch1 :
                         st.markdown("**⚡ Top Functions by Usage**")
-                        st.altair_chart(fn_chart, use_container_width=True)
+                        st.altair_chart(fn_chart, width='stretch')
                     with ch2:
                         st.markdown("**🗂️ SQL Script Categories**")
-                        st.altair_chart(cat_chart, use_container_width=True)
+                        st.altair_chart(cat_chart, width='stretch')
                 # Case 2: only function chart
                 elif fn_chart:
                     st.markdown("**⚡ Top Functions by Usage**")
-                    st.altair_chart(fn_chart, use_container_width=True)
+                    st.altair_chart(fn_chart, width='stretch')
 
                 # Case 3: only category chart
                 elif cat_chart:
                     st.markdown("**🗂️ SQL Script Categories**")
-                    st.altair_chart(cat_chart, use_container_width=True)
+                    st.altair_chart(cat_chart, width='stretch')
                 st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
                 dl_cols = st.columns(2) if sql_reports else st.columns([1, 2])
 
@@ -1743,7 +1938,7 @@ elif selected_page == "Analyzer":
                             file_name=output_filename,
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             key="analysis_download_main",
-                            use_container_width=True,
+                            width='stretch',
                         )
 
                 if sql_reports:
@@ -1755,7 +1950,7 @@ elif selected_page == "Analyzer":
                                 file_name=sql_reports[0].name,
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 key="analysis_download_sql_sub",
-                                use_container_width=True,
+                                width='stretch',
                             )
 
                 st.markdown("<div style='height:1.25rem'></div>", unsafe_allow_html=True)
@@ -1791,7 +1986,7 @@ elif selected_page == "Analyzer":
                                     st.caption(f"Showing {len(display_df):,} matching rows")
                                 else:
                                     display_df = df
-                                st.dataframe(display_df, use_container_width=True, hide_index=True)
+                                st.dataframe(display_df, width='stretch', hide_index=True)
 
                 if sql_reports:
                     st.markdown("<hr class='section-sep'>", unsafe_allow_html=True)
@@ -1807,7 +2002,7 @@ elif selected_page == "Analyzer":
                                     st.caption("No data rows.")
                                 else:
                                     st.caption(f"{len(df):,} rows · {len(df.columns)} columns")
-                                    st.dataframe(df, use_container_width=True, hide_index=True)
+                                    st.dataframe(df, width='stretch', hide_index=True)
             else:
                 st.error(
                     "No output report was generated. "
@@ -1916,7 +2111,7 @@ elif selected_page == "Transpiler":
                 '<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;'
                 'padding:0.6rem 1rem;font-size:0.82rem;color:#065f46;font-weight:500;">'
                 '📋 Output: <strong>Databricks Workflow JSON</strong> — deployable via '
-                '<code>/api/2.1/jobs</code></div>',
+                '<code>/api/2.1/jobs ,please use button below - Create Databricks Workflow</code></div>',
                 unsafe_allow_html=True,
             )
         elif dialect_info.get("custom"):
@@ -1976,14 +2171,7 @@ elif selected_page == "Transpiler":
         </div>
         """, unsafe_allow_html=True)
 
-        tp_mode = st.radio(
-            "Upload mode",
-            ["Individual files", "ZIP archive"],
-            horizontal=True,
-            key="tp_upload_mode",
-            label_visibility="collapsed",
-        )
-        tp_is_zip = tp_mode == "ZIP archive"
+        tp_is_zip = False
 
         if "tp_ws_path" not in st.session_state:
             st.session_state["tp_ws_path"] = "/"
@@ -1999,6 +2187,15 @@ elif selected_page == "Transpiler":
         tp_files = []
 
         with tab1:
+            tp_mode = st.radio(
+                "Upload mode",
+                ["Individual files", "ZIP archive"],
+                horizontal=True,
+                key="tp_upload_mode",
+                label_visibility="collapsed",
+            )
+            tp_is_zip = tp_mode == "ZIP archive"
+
             if tp_is_zip:
                 tp_raw = st.file_uploader(
                     "Drop your ZIP here",
@@ -2045,7 +2242,7 @@ elif selected_page == "Transpiler":
         with tab2:
             from modules.databricks_service import DatabricksClient
 
-            st.markdown("#### 🔗 Browse Databricks Workspace")
+            st.markdown("#### 🔗 Browse Workspace")
 
             try:
                 dbx = DatabricksClient.from_app_context()
@@ -2066,51 +2263,65 @@ elif selected_page == "Transpiler":
 
                 items = st.session_state.get("tp_ws_items", [])
 
-                if items:
-                    dirs = [o for o in items if o.get("object_type") == "DIRECTORY"]
-                    files = [o for o in items if o.get("object_type") in ["NOTEBOOK", "FILE"]]
-
-                    if current_path != "/":
-                        parent = "/".join(current_path.rstrip("/").split("/")[:-1]) or "/"
+                # Show navigation buttons if not at root
+                if current_path != "/":
+                    parent = "/".join(current_path.rstrip("/").split("/")[:-1]) or "/"
+                    back_col, home_col = st.columns([1, 1], gap="small")
+                    with back_col:
                         if st.button("⬅️ Back", key="tp_back"):
                             st.session_state["tp_ws_path"] = parent
                             st.session_state.pop("tp_ws_items", None)
                             st.session_state.pop("tp_last_loaded_path", None)
                             st.rerun()
+                    with home_col:
+                        if st.button("🏠 Home", key="tp_home"):
+                            st.session_state["tp_ws_path"] = "/"
+                            st.session_state.pop("tp_ws_items", None)
+                            st.session_state.pop("tp_last_loaded_path", None)
+                            st.rerun()
 
-                    if dirs:
-                        st.markdown("##### 📁 Folders")
-                        for obj in dirs:
-                            path = obj.get("path")
-                            name = path.rstrip("/").split("/")[-1]
-                            button_key = make_widget_key("tp_dir", path)
-                            if st.button(f"📁 {name}", key=button_key):
-                                st.session_state["tp_ws_path"] = path
-                                st.session_state.pop("tp_ws_items", None)
-                                st.session_state.pop("tp_last_loaded_path", None)
-                                st.rerun()
+                if items:
+                    dirs = [o for o in items if o.get("object_type") == "DIRECTORY"]
+                    files = [o for o in items if o.get("object_type") in ["NOTEBOOK", "FILE"]]
 
-                    if files:
-                        st.markdown("##### 📄 Select files")
-                        selected_paths = set(st.session_state.get("tp_ws_selected_files", []))
-                        for obj in files:
-                            path = obj.get("path")
-                            if any(path.lower().endswith(f".{ext}") for ext in dialect_exts):
-                                checkbox_key = make_widget_key("tp_ws", path)
-                                checked = st.checkbox(path, value=(path in selected_paths), key=checkbox_key)
-                                if checked:
-                                    selected_paths.add(path)
-                                else:
-                                    selected_paths.discard(path)
+                    # 🔥 REAL SCROLL CONTAINER
+                    container = st.container(height=350)
 
-                        st.session_state["tp_ws_selected_files"] = sorted(selected_paths)
-                        if selected_paths:
-                            st.success(f"✅ {len(selected_paths)} file(s) selected")
-                            st.session_state["tp_source_mode"] = "workspace"
+                    with container:
+                        if dirs:
+                            st.markdown("##### 📁 Folders")
+                            for obj in dirs:
+                                path = obj.get("path")
+                                name = path.rstrip("/").split("/")[-1]
+                                button_key = make_widget_key("tp_dir", path)
+                                if st.button(f"📁 {name}", key=button_key):
+                                    st.session_state["tp_ws_path"] = path
+                                    st.session_state.pop("tp_ws_items", None)
+                                    st.session_state.pop("tp_last_loaded_path", None)
+                                    st.rerun()
+
+                        if files:
+                            st.markdown("##### 📄 Select files")
+                            selected_paths = set(st.session_state.get("tp_ws_selected_files", []))
+                            for obj in files:
+                                path = obj.get("path")
+                                if any(path.lower().endswith(f".{ext}") for ext in dialect_exts):
+                                    checkbox_key = make_widget_key("tp_ws", path)
+                                    checked = st.checkbox(path, value=(path in selected_paths), key=checkbox_key)
+                                    if checked:
+                                        selected_paths.add(path)
+                                    else:
+                                        selected_paths.discard(path)
+
+                            st.session_state["tp_ws_selected_files"] = sorted(selected_paths)
+                            if selected_paths:
+                                st.success(f"✅ {len(selected_paths)} file(s) selected")
+                                st.session_state["tp_source_mode"] = "workspace"
+                            else:
+                                st.info("No files selected")
                         else:
-                            st.info("No files selected")
-                    else:
-                        st.info("No valid files in this folder")
+                            st.info("No valid files in this folder")
+
                 else:
                     st.info("No items found in this path")
             except Exception as e:
@@ -2177,6 +2388,10 @@ elif selected_page == "Transpiler":
                     )
                 elif dialect_info.get("custom"):
                     # Custom in-process transpiler (HiveSQL via sqlglot → Databricks SQL)
+                    # Get LLM credentials from environment or session state
+                    llm_endpoint = os.environ.get("LLM_ENDPOINT", "") or st.session_state.get("sb_llm_endpoint", "")
+                    llm_api_key = os.environ.get("LLM_API_KEY", "") or st.session_state.get("sb_llm_api_key", "")
+                    
                     tp_ok, tp_stdout, tp_stderr = run_hive_transpiler(
                         src_dir=tp_src_dir,
                         out_dir=tp_out_dir,
@@ -2184,7 +2399,12 @@ elif selected_page == "Transpiler":
                         target=target_cli,
                         catalog=st.session_state.get("tp_catalog", ""),
                         schema=st.session_state.get("tp_schema", ""),
+                        llm_endpoint=llm_endpoint,
+                        llm_api_key=llm_api_key,
                     )
+                    llm_summary = extract_llm_enhancement_summary(tp_stdout)
+                    if llm_summary:
+                        st.write(f"&nbsp;&nbsp;-> {llm_summary}")
                 else:
                     tp_ok, tp_stdout, tp_stderr = run_transpiler(
                         src_dir=tp_src_dir,
@@ -2210,6 +2430,7 @@ elif selected_page == "Transpiler":
 
             st.session_state["tp_stdout"] = tp_stdout
             st.session_state["tp_stderr"] = tp_stderr
+            llm_counts = extract_llm_enhancement_counts(tp_stdout) or (0, 0, 0)
             store_transpile_output_state(tp_out_dir, {
                 "n_src": n_src,
                 "b_out": b_out,
@@ -2220,15 +2441,26 @@ elif selected_page == "Transpiler":
                 "selected_dialect_name": selected_dialect_name,
                 "selected_target_label": selected_target_label,
                 "is_oozie": bool(dialect_info.get("oozie")),
+                "llm_files_sent": llm_counts[0],
+                "llm_statements_replaced": llm_counts[1],
+                "llm_failures": llm_counts[2],
             })
 
             # ── Logs ─────────────────────────────────────────────────────────
             if tp_stdout:
                 with st.expander("📋 Transpiler output log"):
-                    st.code(tp_stdout, language="text")
+                    tp_log_container = st.container(height=400)
+                    with tp_log_container:
+                        st.markdown("<div class='output-block'>", unsafe_allow_html=True)
+                        st.code(tp_stdout, language="text")
+                        st.markdown("</div>", unsafe_allow_html=True)
             if tp_stderr and not tp_ok:
                 with st.expander("❗ Errors / warnings"):
-                    st.code(tp_stderr, language="text")
+                    tp_error_container = st.container(height=400)
+                    with tp_error_container:
+                        st.markdown("<div class='output-block'>", unsafe_allow_html=True)
+                        st.code(tp_stderr, language="text")
+                        st.markdown("</div>", unsafe_allow_html=True)
 
             # ── Results ──────────────────────────────────────────────────────
             if n_out > 0:
@@ -2246,10 +2478,14 @@ elif selected_page == "Transpiler":
                         '<li><strong>EL expressions</strong> (<code>${variable}</code>) are preserved as-is — replace them with Databricks job parameters or widget values.</li>'
                         '<li><strong>Coordinator &amp; Bundle</strong> schedules are not converted — recreate them as Databricks Job schedules (cron or trigger-based).</li>'
                         '<li>Placeholder values marked <code>&lt;replace: …&gt;</code> must be filled in before deploying the job.</li>'
+                        '<li>Cluster configuration values must be updated after deploying the job based on size of the data.</li>'
+                        '<li>Notebook paths should be updated,after deploying the job current paths are based on oozie workflow.</li>'
                         '</ul>'
                         '</div>',
                         unsafe_allow_html=True,
                     )
+
+                    render_oozie_workflow_create_section(tp_out_dir, "main")
 
                 st.markdown("""
                 <div class="results-header">
@@ -2259,32 +2495,10 @@ elif selected_page == "Transpiler":
                 </div>
                 """, unsafe_allow_html=True)
 
-                # Metric cards
-                mc1, mc2, mc3 = st.columns(3)
-                with mc1:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-icon">📁</div>
-                        <div class="metric-val">{n_src}</div>
-                        <div class="metric-lbl">Files Processed</div>
-                    </div>""", unsafe_allow_html=True)
-                with mc2:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-icon">✅</div>
-                        <div class="metric-val">{n_out}</div>
-                        <div class="metric-lbl">Files Generated</div>
-                    </div>""", unsafe_allow_html=True)
-                with mc3:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-icon">⚡</div>
-                        <div class="metric-val">{elapsed:.1f}s</div>
-                        <div class="metric-lbl">Time Taken</div>
-                    </div>""", unsafe_allow_html=True)
-
-                st.markdown("<div style='height:1.25rem'></div>", unsafe_allow_html=True)
-
+                #METRICS TAB  
+                # Decide number of columns
+                render_transpile_metrics(n_src=n_src,n_out=n_out,elapsed=elapsed,llm_counts=llm_counts)
+                
                 # ZIP download
                 zip_bytes = zip_directory(tp_out_dir)
                 zip_name = f"transpiled_{dialect_cli}_{target_cli.lower()}.zip"
@@ -2296,7 +2510,7 @@ elif selected_page == "Transpiler":
                         file_name=zip_name,
                         mime="application/zip",
                         key="tp_download_all_output_inline",
-                        use_container_width=True,
+                        width='stretch',
                     )
                 with info_col:
                     st.markdown(f"""
@@ -2319,7 +2533,7 @@ elif selected_page == "Transpiler":
                     upload_dest = "/" + upload_dest
                     st.session_state["tp_upload_dest"] = upload_dest
 
-                if st.button("📤  Upload All Output Files to Databricks", key="tp_upload_output", use_container_width=True):
+                if st.button("📤  Upload All Output Files to Databricks", key="tp_upload_output", width='stretch'):
                     try:
                         ok, upload_errors = upload_directory_to_workspace(tp_out_dir, upload_dest)
                         if ok:
@@ -2404,16 +2618,15 @@ elif selected_page == "Settings":
     """, unsafe_allow_html=True)
 
     # ── Auto-detect context ───────────────────────────────────────────────────
-    db_host_env   = os.environ.get("DATABRICKS_HOST", "")
-    db_token_env  = os.environ.get("DATABRICKS_TOKEN", "")
-    db_cfg_exists = Path.home().joinpath(".databrickscfg").exists()
+    db_host_env = os.environ.get("DATABRICKS_HOST", "")
+    db_token_env = os.environ.get("DATABRICKS_TOKEN", "")
 
     if db_host_env and db_token_env:
         st.markdown(
             f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;'
             f'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#166534;">'
             f'✅ <strong>Ready</strong> — workspace <code>{db_host_env}</code> and token are '
-            f'already present in the environment (Databricks Apps or pre-configured CLI). '
+            f'already present in the environment. '
             f'You do not need to fill anything in below. '
             f'Use the fields only if you want to override for this session.'
             f'</div>',
@@ -2424,18 +2637,8 @@ elif selected_page == "Settings":
             f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;'
             f'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#92400e;">'
             f'⚠️ <strong>Workspace URL detected</strong> (<code>{db_host_env}</code>) but no token '
-            f'found in environment. If you have a configured CLI profile (<code>~/.databrickscfg</code>) '
-            f'it will be used automatically. Otherwise enter a token below.'
+            f'found in environment. Enter a token below to continue.'
             f'</div>',
-            unsafe_allow_html=True,
-        )
-    elif db_cfg_exists:
-        st.markdown(
-            '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;'
-            'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#166534;">'
-            '✅ <strong>Databricks CLI profile found</strong> (<code>~/.databrickscfg</code>). '
-            'The CLI will use it automatically — no input needed unless you want a different workspace.'
-            '</div>',
             unsafe_allow_html=True,
         )
     else:
@@ -2452,92 +2655,171 @@ elif selected_page == "Settings":
     st.markdown("---")
 
     # ── Credential form ───────────────────────────────────────────────────────
-    cfg_col1, cfg_col2 = st.columns([3, 2], gap="large")
+    # cfg_col1, cfg_col2 = st.columns([3, 2], gap="large")
 
-    with cfg_col1:
-        st.markdown("##### Option A — Host + Token (recommended for local use)")
+    # with cfg_col1:
+    st.markdown("##### Connection Details — Host + Token ")
 
-        st.text_input(
-            "Databricks Workspace URL",
-            key="sb_db_host",
-            placeholder="https://adb-XXXXXXXXXXXX.XX.azuredatabricks.net",
-            help="The full URL of your Databricks workspace, e.g. https://adb-1234567890.1.azuredatabricks.net",
-        )
+    st.text_input(
+        "Databricks Workspace URL",
+        key="sb_db_host",
+        placeholder="https://adb-XXXXXXXXXXXX.XX.azuredatabricks.net",
+        help="The full URL of your Databricks workspace, e.g. https://adb-xxxxxxxxxx.xx.azuredatabricks.net",
+    )
 
-        st.text_input(
-            "Personal Access Token (PAT)",
-            key="sb_db_token",
-            type="password",
-            placeholder="dapi…",
-            help="Generate a token in Databricks → User Settings → Developer → Access Tokens.",
-        )
-        status_col1, status_col2 = st.columns([1, 1], gap="large")
-        save_clicked = status_col1.button("💾 Save connection", key="save_db_connection")
-        test_workspace_clicked = status_col2.button("🔍 Test workspace connection", key="test_workspace_connection")
-        if save_clicked:
-            sync_databricks_env_from_session_state()
-            st.success("✅ Connection values saved for this session.")
+    st.text_input(
+        "Personal Access Token (PAT)",
+        key="sb_db_token",
+        type="password",
+        placeholder="dapiXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+        help="Generate a token in Databricks → User Settings → Developer → Access Tokens.",
+    )
+    status_col1, status_col2, status_col3 = st.columns([1, 1, 1], gap="large")
+    save_clicked = status_col1.button("💾 Save connection", key="save_db_connection")
+    test_workspace_clicked = status_col2.button("🔍 Test workspace connection", key="test_workspace_connection")
+    clear_clicked = status_col3.button("🗑️ Clear workspace credentials", key="clear_db_connection")
+    
+    if clear_clicked:
+        clear_databricks_credentials()
+        st.success("✅ Databricks credentials cleared")
+        st.rerun()
+    
+    if save_clicked:
+        try:
+            set_databricks_env(st.session_state.get("sb_db_host"),
+            st.session_state.get("sb_db_token"))
+            clear_databricks_workspace_selection_state()
+            st.success("✅ Connection configured successfully")
             st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
             st.caption(
-        "Credentials are held in session state only. "
-        "They are injected into the subprocess environment for Analyzer and Transpiler calls "
-        "and are not stored to disk or shared between users."
-                    )
-
-        if test_workspace_clicked:
-            sync_databricks_env_from_session_state()
-            host = st.session_state.get("sb_db_host", "").strip()
-            token = st.session_state.get("sb_db_token", "").strip()
-            profile = st.session_state.get("sb_db_profile", "").strip()
-            ok, message = test_databricks_workspace_connection(host, token, profile)
-            if ok:
-                st.success(f"✅ {message}")
-            else:
-                st.error(f"❌ {message}")
-                
-        st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
-        st.markdown("##### Option B — Named Profile")
-        st.text_input(
-            "Databricks Config Profile",
-            key="sb_db_profile",
-            placeholder="DEFAULT",
-            help=(
-                "Name of the profile in your ~/.databrickscfg file. "
-                "Leave blank to use the DEFAULT profile. "
-                "Create profiles with: databricks configure --profile <name>"
-            ),
+            "Credentials are held in session state only. "
+            "They are injected into the subprocess environment for Analyzer and Transpiler calls "
+            "and are not stored to disk or shared between users."
         )
-        st.markdown("<div style='height:0.75rem'></div>", unsafe_allow_html=True)
-        if st.button("🧰 Test Databricks CLI connection", key="test_db_cli_connection"):
-            ok, message = test_databricks_cli_connection()
-            if ok:
-                st.success("✅ CLI connection test succeeded")
-                st.code(message, language="text")
-            else:
-                st.error("❌ CLI connection test failed")
-                st.code(message, language="text")
+        except ValueError as e:
+            st.error(str(e))
+        # sync_databricks_env_from_session_state()
+        
 
-    with cfg_col2:
-        st.markdown("##### How to get a Personal Access Token")
-        st.markdown("""
-            1. Open your Databricks workspace in a browser.
-            2. Click your username (top right) → **Settings**.
-            3. Go to **Developer** → **Access Tokens** → **Generate new token**.
-            4. Give it a name and copy the token value — you won't see it again.
-            5. Paste it in the **PAT** field on the left.
+    if test_workspace_clicked:
+        # sync_databricks_env_from_session_state()
+        host = st.session_state.get("sb_db_host", "").strip()
+        token = st.session_state.get("sb_db_token", "").strip()
+        ok, message = test_databricks_workspace_connection(host, token)
+        if ok:
+            st.success(f"✅ {message}")
+        else:
+            st.error(f"❌ {message}")
 
-            ##### How to configure a CLI profile
-            ```bash
-            databricks configure --profile myprofile
-            # Enter workspace URL and token when prompted
-            ```
-            Then set **Profile** = `myprofile` on the left.
+    st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
+    st.markdown(
+        """
+        ##### Azure / GCP / AWS
+        SyrenBridge works with any Databricks workspace. The workspace URL format varies:
+        - **Azure:** `https://adb-XXXX.XX.azuredatabricks.net`
+        - **AWS:** `https://XXXX.cloud.databricks.com`
+        - **GCP:** `https://XXXX.gcp.databricks.com`
+        """
+    )
 
-            ##### Azure / GCP / AWS
-            SyrenBridge works with any Databricks workspace. The workspace URL format varies:
-            - **Azure:** `https://adb-XXXX.XX.azuredatabricks.net`
-            - **AWS:** `https://XXXX.cloud.databricks.com`
-            - **GCP:** `https://XXXX.gcp.databricks.com`
-                    """)
+    st.markdown("---")
+
+    # ── LLM Credentials ───────────────────────────────────────────────────────
+    st.markdown("##### LLM Credentials — Endpoint + API Key")
+
+    # Auto-detect LLM context from environment
+    llm_endpoint_env = os.environ.get("LLM_ENDPOINT", "")
+    llm_api_key_env = os.environ.get("LLM_API_KEY", "")
+
+    if llm_endpoint_env and llm_api_key_env:
+        st.markdown(
+            f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;'
+            f'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#166534;">'
+            f'✅ <strong>Ready</strong> — LLM endpoint <code>{llm_endpoint_env}</code> and API key are '
+            f'already present in the environment. '
+            f'You do not need to fill anything in below. '
+            f'Use the fields only if you want to override for this session.'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    elif llm_endpoint_env:
+        st.markdown(
+            f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;'
+            f'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#92400e;">'
+            f'⚠️ <strong>LLM Endpoint detected</strong> (<code>{llm_endpoint_env}</code>) but no API key '
+            f'found in environment. Enter an API key below to continue.'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;'
+            'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#475569;">'
+            'ℹ️ <strong>LLM credentials are optional.</strong> They are used for the LLM-powered '
+            'transpiler (when enabled). If not provided, the standard transpiler will be used.<br><br>'
+            '<strong>Supported providers:</strong> OpenAI, Azure OpenAI, Anthropic, Cohere, and other '
+            'compatible LLM endpoints.'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+    st.text_input(
+        "LLM Endpoint URL",
+        key="sb_llm_endpoint",
+        placeholder="https://adb-<workspace-id>.azuredatabricks.net/serving-endpoints/databricks-<model-name>/invocations",
+        help="The full URL of your LLM API endpoint. For OpenAI, use https://api.openai.com/v1",
+    )
+
+    st.text_input(
+        "LLM API Key",
+        key="sb_llm_api_key",
+        type="password",
+        placeholder="dap-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+        help="Your LLM API key. For OpenAI, get it from https://platform.openai.com/api-keys",
+    )
+
+    llm_col1, llm_col2, llm_col3 = st.columns([1, 1, 1], gap="large")
+    llm_save_clicked = llm_col1.button("💾 Save LLM connection", key="save_llm_connection")
+    llm_test_clicked = llm_col2.button("🔍 Test LLM connection", key="test_llm_connection")
+    llm_clear_clicked = llm_col3.button("🗑️ Clear LLM credentials", key="clear_llm_connection")
+
+    if llm_clear_clicked:
+        clear_llm_credentials()
+        st.success("✅ LLM credentials cleared")
+        st.rerun()
+
+    if llm_save_clicked:
+        try:
+            set_llm_env(
+                st.session_state.get("sb_llm_endpoint"),
+                st.session_state.get("sb_llm_api_key")
+            )
+            st.success("✅ LLM connection configured successfully")
+            st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+            st.caption(
+                "LLM credentials are held in session state only. "
+                "They are injected into the subprocess environment for LLM transpiler calls "
+                "and are not stored to disk or shared between users."
+            )
+        except ValueError as e:
+            st.error(str(e))
+
+    if llm_test_clicked:
+        endpoint = st.session_state.get("sb_llm_endpoint", "").strip()
+        api_key = st.session_state.get("sb_llm_api_key", "").strip()
+        ok, message = test_llm_connection(endpoint, api_key)
+        if ok:
+            st.success(f"✅ {message}")
+        else:
+            st.error(f"❌ {message}")
+
+    st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
+    st.markdown(
+        """
+        ##### Supported LLM Providers
+         **Databricks serving models:** `https://adb-<workspace-id>.azuredatabricks.net/serving-endpoints/databricks-<model-name>/invocations` (Use claude sonnet )
+       
+        """
+    )
 
 

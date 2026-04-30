@@ -9,6 +9,7 @@ A Streamlit-based migration accelerator that wraps **Databricks Labs Lakebridge*
 - [Overview](#overview)
 - [What Lakebridge Provides Natively](#what-lakebridge-provides-natively)
 - [What SyrenBridge Adds](#what-syrenbridge-adds)
+- [HiveSQL Transpiler Enhancements](#hivesql-transpiler-enhancements)
 - [Application Tabs](#application-tabs)
   - [Get Started](#get-started-tab)
   - [Analyzer](#analyzer-tab)
@@ -77,18 +78,67 @@ SyrenBridge contributes two custom engines on top of Lakebridge:
 
 ### 1. HiveSQL (Cloudera) — Custom Transpiler Engine
 
-Lakebridge's HiveQL support is limited. SyrenBridge replaces the CLI call with a fully custom pipeline:
+Lakebridge's HiveQL support is limited. SyrenBridge replaces the CLI call with a fully custom, production-grade transpilation pipeline:
 
-- **sqlglot** (`read="hive"`, `write="databricks"`) for structural SQL conversion
-- **Regex-based clause stripping** for Hive-specific constructs that have no Databricks equivalent:
-  - `STORED AS {TEXTFILE|ORC|PARQUET|…}`
-  - `ROW FORMAT DELIMITED FIELDS TERMINATED BY …`
-  - `SERDE '…' WITH SERDEPROPERTIES (…)`
-  - `TBLPROPERTIES (…)`
-  - `LOCATION 'hdfs://…'`
-- Output targets **Databricks SQL dialect** (not generic Spark SQL), so transpiled code runs directly on Databricks SQL Warehouses and clusters.
+#### Enhanced Transpilation Pipeline
 
-The custom engine lives in `modules/sql_transpiler.py`. It is also backed by a local-mode PySpark validation layer (`modules/sql_validator.py`) that executes both the original and transpiled SQL against dummy data to confirm row count and schema equivalence.
+The transpiler (`modules/sql_transpiler.py`) processes Hive SQL in three stages:
+
+**Stage 1: Pre-Processing (Whole-File Analysis)**
+- Extract and normalize Hive variables: `${var}`, `${hivevar:var}`, `SET var=value`
+  - Converts to Databricks `DECLARE OR REPLACE VARIABLE` syntax
+  - Filters out engine configs (`spark.*`, `hive.*`, `mapreduce.*`)
+- Detect unsupported constructs:
+  - `ADD JAR` (custom UDF JARs) — **BLOCKER**
+  - `CREATE TEMPORARY FUNCTION` — **BLOCKER**
+  - `EXPLAIN` statements (removed silently)
+  - Multi-insert statements — **BLOCKER**
+- Line-aware SQL statement splitting with full comment handling:
+  - Single-line (`--`) and block (`/* */`) comment preservation
+  - Quoted string and identifier handling (single/double/backtick)
+  - Each statement tracked with original line number
+
+**Stage 2: Statement-Level Conversion**
+- **sqlglot transpilation** (`read="hive"`, `write="databricks"`) for each statement
+- Hive-specific transformations (via regex):
+  - `NVL()` → `COALESCE()`
+  - `FROM_UNIXTIME(ts, fmt)` → `DATE_FORMAT(TIMESTAMP_SECONDS(ts), fmt)`
+  - `FROM_UNIXTIME(ts)` → `TIMESTAMP_SECONDS(ts)`
+  - `UNIX_TIMESTAMP()` → `CURRENT_TIMESTAMP()`
+  - `DISTRIBUTE BY` / `SORT BY` → removed
+  - `MAPJOIN` hints → `BROADCAST` hints
+- **CREATE TABLE handling**:
+  - Normalizes `CREATE EXTERNAL TABLE` → `CREATE TABLE`
+  - Adds `USING DELTA` clause
+  - Handles CTAS (`CREATE TABLE AS SELECT`)
+  - Preserves `LOCATION` directives (rewrite HDFS paths to dbfs:/)
+  - Removes Hive-only clauses: `ROW FORMAT`, `SERDE`, `STORED AS`, `TBLPROPERTIES`, `CLUSTERED BY`, `SORTED BY`, `SKEWED BY`, `INPUTFORMAT`, `OUTPUTFORMAT`
+- **Special DDL fixes**:
+  - `MSCK REPAIR TABLE tbl` → `REFRESH TABLE tbl`
+  - `ANALYZE TABLE tbl COMPUTE STATISTICS FOR COLUMNS` → `ANALYZE TABLE tbl COMPUTE STATISTICS FOR ALL COLUMNS`
+  - Flags external tables and CTAS for manual review (INFO-level issues)
+
+**Stage 3: LLM Enhancement (Optional)**
+- If LLM endpoint configured (`llm_endpoint`, `llm_api_key`):
+  - Load prompt from `modules/prompts/hivesql.yml`
+  - Collect only problematic statements (ERROR or BLOCKER severity)
+  - Send to Databricks Claude Sonnet API with context
+  - Parse statement markers (`-- STATEMENT_ID: idx`) in output
+  - Replace problematic statements while preserving unrelated ones
+  - Safety checks: preserve INSERT/PARTITION logic, minimum length validation
+  - Falls back to rule-based output on LLM failure or timeout
+
+#### Output Formats
+
+- **Databricks SQL (`.sql`)**: Direct SQL suitable for Databricks SQL Warehouses
+  - Includes variable declarations
+  - Optional catalog/schema prefixes
+  - Issues annotated as SQL comments
+- **PySpark (`.py`)**: Notebook-ready Python code
+  - SparkSession initialization
+  - `spark.sql("""statement""")` wrapping
+  - Issues annotated as Python comments
+
 
 ### 2. Oozie (Workflow) — 11th Dialect
 
@@ -111,7 +161,142 @@ Apache Oozie is not supported by Lakebridge. SyrenBridge adds it as the 11th tra
 
 ---
 
-## Application Tabs
+## HiveSQL Transpiler Enhancements
+
+The HiveSQL transpiler has been significantly enhanced with a **3-stage production-grade pipeline**, advanced issue detection, and optional LLM-assisted fixing.
+
+### Transpilation Pipeline Overview
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ Stage 1: Pre-Processing (Whole-File Analysis)              │
+├──────────────────────────────────────────────────────────────┤
+│ • Extract & normalize Hive variables (${var}, SET statements)
+│ • Detect blockers: ADD JAR, CREATE TEMPORARY FUNCTION       │
+│ • Line-aware SQL statement splitting with full comment      │
+│   handling (single-line, block, quoted strings, identifiers)│
+│ • Generate DECLARE OR REPLACE VARIABLE statements           │
+│ • Remove: UDF definitions, EXPLAIN plans, CLUSTERED/SORTED  │
+│   BY clauses                                                 │
+└──────────────────────────────────────────────────────────────┘
+                           ↓
+┌──────────────────────────────────────────────────────────────┐
+│ Stage 2: Statement-Level Conversion & Cleaning              │
+├──────────────────────────────────────────────────────────────┤
+│ • sqlglot transpilation (read="hive", write="databricks")   │
+│ • Hive → Databricks function rewrites (NVL, FROM_UNIXTIME,  │
+│   UNIX_TIMESTAMP, MAPJOIN hints, etc.)                      │
+│ • CREATE TABLE normalization (EXTERNAL → TABLE,             │
+│   USING DELTA, CTAS handling)                               │
+│ • DDL fixes (MSCK REPAIR → REFRESH, ANALYZE normalization)  │
+│ • Issue tagging (unsupported constructs, parse errors)      │
+│ • Hive clause stripping (ROW FORMAT, SERDE, STORED AS, etc.)│
+└──────────────────────────────────────────────────────────────┘
+                           ↓
+        ┌──────────────────┴──────────────────┐
+        ↓ (if LLM configured)                 ↓ (no LLM)
+┌──────────────────────────────────────────┐
+│ Stage 3: LLM Enhancement (Optional)      │
+├──────────────────────────────────────────┤
+│ • Collect ERROR/BLOCKER statements       │
+│ • Send to Databricks Claude with context │
+│ • Parse STATEMENT_ID markers             │
+│ • Replace problematic statements         │
+│ • Fallback to rule-based output on error │
+└──────────────────────────────────────────┘
+                           ↓
+┌──────────────────────────────────────────────────────────────┐
+│ Output: Databricks SQL (.sql) or PySpark (.py)             │
+│         + Issues log (SQL/Python comments)                   │
+│         + Error file (any read/write errors)                 │
+└──────────────────────────────────────────────────────────────┘
+```
+
+
+### Issue Detection & Categorization
+
+All issues are categorized by severity:
+
+| Severity | Meaning | Action |
+|----------|---------|--------|
+| **BLOCKER** | Fatal — transpilation cannot proceed | Manual rewrite required |
+| **ERROR** | Parse/conversion error | Candidate for LLM fixing or manual review |
+| **WARNING** | Unsupported feature detected | Manual review recommended |
+| **INFO** | FYI — clause converted, verify behavior | Normal, no action required |
+
+**Common blockers:**
+- `ADD JAR` (custom UDF JARs) — requires PySpark UDF registration
+- `CREATE TEMPORARY FUNCTION` — custom Hive UDFs not portable
+- Multi-insert statements — not supported in Databricks
+- `LOAD DATA` (HDFS bulk load) — use `COPY INTO` or Databricks I/O instead
+
+**Common warnings:**
+- Dynamic variables (`${...}`) — may need manual substitution
+- External tables — converted to Delta, verify LOCATION and format
+
+**Common info:**
+- `MSCK REPAIR TABLE` → `REFRESH TABLE` — internal catalog maintained automatically
+- `ANALYZE TABLE ... FOR COLUMNS` → normalized syntax
+
+### LLM-Assisted Fixing (Optional)
+
+When LLM credentials are provided, the transpiler automatically attempts to fix problematic statements:
+
+**Configuration:**
+- `llm_endpoint`: Databricks API endpoint (e.g., `https://<workspace>.cloud.databricks.com/api/2.0/serving-endpoints/chat/completions`)
+- `llm_api_key`: Databricks Personal Access Token
+- Model: Defaults to `databricks-claude-sonnet-4-6`
+
+**Flow:**
+1. Collect statements with ERROR or BLOCKER severity
+2. Load prompt from `modules/prompts/hivesql.yml`
+3. Send batch with `-- STATEMENT_ID: idx` markers
+4. Parse LLM output using markers
+5. Replace only problematic statements (safety checks):
+   - Minimum output length (≥10 chars)
+   - Preserve INSERT/PARTITION keywords
+   - Exact statement ID matching
+6. Fall back to rule-based output if LLM fails/times out
+
+**Safety guarantees:**
+- LLM only touches ERROR/BLOCKER statements
+- INFO/WARNING statements unmodified
+- Unrelated statements fully preserved
+- Automatic fallback on any LLM error
+- Output validity checks prevent broken SQL
+
+### Supported Transformations
+
+**Function Rewrites:**
+| Hive Function | Databricks Equivalent |
+|---------------|----------------------|
+| `NVL(x, y)` | `COALESCE(x, y)` |
+| `FROM_UNIXTIME(ts)` | `TIMESTAMP_SECONDS(ts)` |
+| `FROM_UNIXTIME(ts, fmt)` | `DATE_FORMAT(TIMESTAMP_SECONDS(ts), fmt)` |
+| `UNIX_TIMESTAMP()` | `CURRENT_TIMESTAMP()` |
+| `/\*+ MAPJOIN(tbl) \*/` | `/\*+ BROADCAST(tbl) \*/` |
+
+**Clause Handling:**
+| Hive Clause | Action | Databricks Behavior |
+|-------------|--------|-------------------|
+| `ROW FORMAT DELIMITED` | Removed | Inferred from data format |
+| `ROW FORMAT SERDE` | Removed | Use `STORED AS PARQUET` / `ORC` instead |
+| `STORED AS {TEXTFILE,ORC,PARQUET,…}` | Removed | Use table format parameter |
+| `TBLPROPERTIES (...)` | Removed | Unsupported, migrate manually |
+| `LOCATION 'hdfs://...'` | Preserved | Rewrite to `dbfs:/` or `abfss://` path |
+| `CLUSTERED BY` | Removed | Use Z-order or clustering hints |
+| `SORTED BY` | Removed | Use ORDER BY in queries |
+| `SKEWED BY` | Removed | Not needed in Databricks |
+| `INPUTFORMAT` / `OUTPUTFORMAT` | Removed | Auto-detected from `STORED AS` |
+
+**CREATE TABLE Normalization:**
+- `CREATE EXTERNAL TABLE` → `CREATE TABLE` (Delta-managed by default)
+- Adds `USING DELTA` clause
+- Handles CTAS (Create Table As Select) — schema inferred from SELECT
+- External table LOCATION preserved (verify hdfs:// → dbfs:/ rewrite)
+- Unsupported clauses stripped, issues flagged for review
+
+---
 
 ### Get Started Tab
 
@@ -183,20 +368,93 @@ All custom logic lives in `lb_migration_platform_ui/modules/`. These are pure-Py
 ```
 modules/
 ├── __init__.py
-├── sql_transpiler.py      # transpile_hive_sql(), infer_schema()
-├── dummy_data.py          # generate_rows(), register_temp_tables()
-├── sql_validator.py       # validate_transpilation() → ValidationResult
-├── oozie_converter.py     # parse_workflow(), to_databricks_job(), workflow_to_json()
-├── pyspark_migrator.py    # migrate_pyspark_script(), migrate_notebook()
-└── hdfs_migrator.py       # parse_hdfs_listing(), generate_fs_cp_script(), ...
+├── sql_transpiler.py       # transpile_hive_sql(), run_hive_transpiler(), handle_hive_variables()
+├── llm_converter.py        # LLMConverter class for LLM-assisted SQL fixing
+├── sql_validator.py        # validate_transpilation() → ValidationResult
+├── dummy_data.py           # generate_rows(), register_temp_tables()
+├── oozie_converter.py      # parse_workflow(), to_databricks_job(), workflow_to_json()
+├── pyspark_migrator.py     # migrate_pyspark_script(), migrate_notebook()
+├── hdfs_migrator.py        # parse_hdfs_listing(), generate_fs_cp_script(), ...
+└── prompts/
+    ├── __init__.py
+    └── hivesql.yml         # LLM prompt template for HiveSQL fixes
 ```
 
 ### `sql_transpiler.py`
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `transpile_hive_sql` | `(sql: str) -> str` | Transpile Hive SQL to Databricks SQL using sqlglot + regex stripping |
-| `infer_schema` | `(sql: str) -> Dict[str, str]` | Extract `{col_name: hive_type}` from the first `CREATE TABLE` in a SQL string; excludes partition columns |
+| `split_sql_statements` | `(sql: str) -> List[Tuple[str, int]]` | Parse SQL into statements with line-aware comment handling; returns `[(stmt, line_number), ...]` |
+| `handle_hive_variables` | `(content: str) -> Tuple[str, List[str]]` | Extract Hive variables, generate `DECLARE OR REPLACE VARIABLE` statements, return cleaned SQL and declarations |
+| `create_table_handler` | `(stmt: str, location: str\|None) -> str` | Normalize CREATE TABLE statements: add `USING DELTA`, handle CTAS, preserve/add LOCATION |
+| `add_global_issue` | `(issues, category, message, pattern, content, severity)` | Add multi-line issue for patterns found in entire file |
+| `add_statement_issue` | `(issues, category, message, stmt, line_no, stmt_index, severity)` | Add issue for specific statement |
+| `run_hive_transpiler` | `(src_dir, out_dir, err_file, target, catalog, schema, llm_endpoint, llm_api_key) -> Tuple[bool, str, str]` | **Main entry point**: transpile all `.hql` files in directory, apply transformations, optionally fix with LLM, output `.sql` or `.py` |
+
+**Key parameters for `run_hive_transpiler`**:
+- `target`: `"SPARKSQL"` (output `.sql`) or `"PYSPARK"` (output `.py`)
+- `catalog`, `schema`: Optional Databricks three-level namespace
+- `llm_endpoint`, `llm_api_key`: Optional LLM service endpoint (Databricks API) and token for statement enhancement
+- `err_file`: Error log file path
+
+### `llm_converter.py`
+
+LLM-assisted SQL transpilation engine. Integrates with Databricks API or other OpenAI-compatible endpoints.
+
+| Class/Function | Signature | Description |
+|---|---|---|
+| `load_prompt` | `(prompt_obj) -> Dict` | Load YAML prompt file or return dict as-is |
+| `format_issues` | `(issues) -> str` | Format issue list as `[SEVERITY] CATEGORY → message` strings |
+| `LLMConverter.__init__` | `(api_key, endpoint, model, max_retries, timeout, max_tokens)` | Initialize LLM client with Databricks defaults: `databricks-claude-sonnet-4-6`, max_tokens=12000 |
+| `LLMConverter.build_prompt` | `(prompt_config, code, issues)` | Combine system prompt, user template, and issues into final prompt |
+| `LLMConverter.call_llm` | `(system_prompt, user_prompt) -> str` | Call LLM API with retry logic (exponential backoff, request tracking) |
+| `LLMConverter.code_convert_llm` | `(code, prompt, issues, fallback) -> str` | **Main entry point**: load prompt, call LLM, return fixed code or original on failure |
+
+**Key features**:
+- Retries with exponential backoff (default 3 attempts)
+- Request ID tracking for debugging
+- Fallback to original code on error (if `fallback=True`)
+- Strict safety checks: minimum output length, preserves INSERT/PARTITION logic
+
+### `prompts/hivesql.yml`
+
+YAML prompt template for LLM-based HiveSQL fixing. Controls LLM behavior during Stage 3 enhancement.
+
+```yaml
+system: |
+  Convert Hive SQL to Databricks SQL using LLM.
+  Focus on fixing syntax and compatibility issues while preserving original logic.
+  Only return valid Databricks SQL without explanations or markdown.
+
+rules: |
+  - ONLY return valid Databricks SQL
+  - DO NOT add explanations or comments
+  - DO NOT add markdown (no ```sql)
+  - DO NOT change business logic
+  - ONLY fix statements related to issues
+  - Keep output minimal and executable
+  - If unsure, return the original SQL without changes
+  - DO NOT remove partition logic
+  - DO NOT change table behavior
+  - ONLY modify statements that contain issues
+  - DO NOT modify unrelated statements
+  - PRESERVE structure of other statements exactly
+  - FIX only syntax incompatibilities
+  - DO NOT skip required transformations
+
+template: |
+  Input SQL:
+  {code}
+
+  Issues detected:
+  {issues}
+
+  You MUST fix the issues if possible.
+
+  Output only SQL.
+```
+
+When multiple statements are passed, they are marked with `-- STATEMENT_ID: idx` for precise parsing of LLM output.
 
 ### `dummy_data.py`
 
@@ -298,6 +556,50 @@ The app will open at `http://localhost:8501`.
 
 Upload the `lb_migration_platform_ui/` directory as a Databricks App. The `requirements.txt` is used for dependency installation. Lakebridge must be available in the app's execution environment.
 
+### Configuring LLM Enhancement (Optional)
+
+HiveSQL transpilation can optionally use an LLM to fix problematic statements. This requires a Databricks workspace with a serving endpoint or an external API-compatible LLM service.
+
+**Step 1: Get Databricks Credentials**
+- Workspace URL: `https://<workspace>.cloud.databricks.com`
+- Personal Access Token: Generate from Databricks Account Console
+- Serving Endpoint (if using Databricks):
+  - Ensure Claude model is deployed in your workspace
+  - Endpoint path: `/api/2.0/serving-endpoints/chat/completions`
+
+**Step 2: Configure in Streamlit App**
+In the **Settings** tab, you'll see optional LLM fields:
+- **LLM Endpoint**: Full URL to Claude endpoint (Databricks supported)
+- **LLM API Key**: Personal Access Token
+
+When both are filled, HiveSQL Transpiler automatically uses LLM for Stage 3 enhancement.
+
+**Step 3: Test LLM Connection**
+Run a test transpilation with a problematic HiveSQL file:
+- Upload file with ERROR/BLOCKER issues
+- Check the LLM logs in the app output
+- Verify fixed SQL in the result
+
+**Example with Databricks Claude:**
+```
+Endpoint: https://my-workspace.cloud.databricks.com/api/2.0/serving-endpoints/chat/completions
+API Key: <personal-access-token>
+Model: databricks-claude-sonnet-4-6 (default)
+```
+
+**LLM Request Limits:**
+- Timeout: 300 seconds (5 minutes per batch)
+- Max retries: 3 (exponential backoff)
+- Max tokens: 12,000 per response
+- Max statement batch size: All ERROR/BLOCKER statements in one file
+
+**Fallback Behavior:**
+If LLM is unavailable or fails:
+1. Transpiler continues with Stage 2 (rule-based) output
+2. Issues remain flagged for manual review
+3. Original code fallback if LLM timeout
+4. No data loss — errors logged, not thrown
+
 ---
 
 ## Running Tests
@@ -320,7 +622,7 @@ pytest tests/test_oozie_converter.py -v
 
 | Test File | Tests | What It Covers |
 |-----------|-------|----------------|
-| `test_sql_transpiler.py` | 11 | `transpile_hive_sql`, `infer_schema` — clause stripping, schema inference, partition column exclusion |
+| `test_sql_transpiler.py` | 11+ | `split_sql_statements`, `handle_hive_variables`, `create_table_handler`, `run_hive_transpiler` — statement parsing, variable extraction, CREATE TABLE normalization, full transpilation pipeline, clause stripping, transformations |
 | `test_dummy_data.py` | 8 | `generate_rows`, `register_temp_tables` — type mapping, row counts, Spark temp view registration |
 | `test_sql_validator.py` | 5 | `validate_transpilation` — pass/fail detection, schema mismatch, row count diff, invalid SQL handling |
 | `test_oozie_converter.py` | 10 | `parse_workflow`, `to_databricks_job` — action types, dependency graph, output structure |
@@ -328,6 +630,20 @@ pytest tests/test_oozie_converter.py -v
 | `test_hdfs_migrator.py` | 9 | `parse_hdfs_listing`, all script generators, `rewrite_sql_locations` |
 
 > SQL Validator tests start a local PySpark session (JVM startup ~20-30s on first run). Subsequent test runs reuse the session-scoped fixture and are faster.
+
+**Enhanced sql_transpiler.py Tests:**
+The transpiler module now tests:
+- Line-aware SQL statement splitting with comment preservation
+- Multi-line comment handling (`/* */` and `--`)
+- Quoted string and identifier protection
+- Hive variable extraction and normalization
+- SET statement filtering (configs vs. user variables)
+- CREATE TABLE normalization (EXTERNAL, CTAS, USING DELTA, LOCATION)
+- Issue categorization (BLOCKER, ERROR, WARNING, INFO)
+- Function rewrites (NVL, FROM_UNIXTIME, UNIX_TIMESTAMP, MAPJOIN)
+- Clause stripping (ROW FORMAT, SERDE, STORED AS, TBLPROPERTIES, etc.)
+- Statement-level transpilation with error handling
+- Full pipeline execution (all three stages)
 
 ---
 
@@ -341,15 +657,19 @@ Lb-Migration-Platform/
 │   ├── requirements-dev.txt         # Dev/test dependencies
 │   └── modules/
 │       ├── __init__.py
-│       ├── sql_transpiler.py        # HiveSQL → Databricks SQL
-│       ├── dummy_data.py            # Synthetic test data generation
+│       ├── sql_transpiler.py        # HiveSQL → Databricks SQL (3-stage pipeline)
+│       ├── llm_converter.py         # LLM-assisted SQL fixing (Databricks API)
 │       ├── sql_validator.py         # PySpark-based SQL validation
+│       ├── dummy_data.py            # Synthetic test data generation
 │       ├── oozie_converter.py       # Oozie XML → Databricks Jobs JSON
 │       ├── pyspark_migrator.py      # PySpark script modernization
-│       └── hdfs_migrator.py         # HDFS path migration scripts
+│       ├── hdfs_migrator.py         # HDFS path migration scripts
+│       └── prompts/
+│           ├── __init__.py
+│           └── hivesql.yml          # LLM prompt template for HiveSQL fixing
 ├── tests/
 │   ├── conftest.py                  # Session-scoped SparkSession fixture
-│   ├── test_sql_transpiler.py
+│   ├── test_sql_transpiler.py       # Enhanced with split_sql_statements, handle_hive_variables, etc.
 │   ├── test_dummy_data.py
 │   ├── test_sql_validator.py
 │   ├── test_oozie_converter.py
@@ -357,10 +677,15 @@ Lb-Migration-Platform/
 │   └── test_hdfs_migrator.py
 ├── files/
 │   ├── source_hive/                 # Sample HiveQL files
+│   │   ├── 01_setup_database.hql
+│   │   ├── 02_insert_data.hql
+│   │   ├── 03_transform_data.hql
+│   │   └── 04_maintenance.hql
 │   ├── source_spark/                # Sample PySpark scripts
 │   ├── sample_oozie/                # Sample Oozie workflow XML
 │   └── sample_hdfs/                 # Sample HDFS listing
 ├── pytest.ini
+├── CLAUDE.md                        # Project context for AI assistants
 └── README.md
 ```
 

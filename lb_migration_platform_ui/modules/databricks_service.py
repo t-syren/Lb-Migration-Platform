@@ -2,7 +2,7 @@ import requests
 import base64
 import os
 import streamlit as st
-
+from typing import Dict, Any
 
 # ─────────────────────────────────────────────────────────────
 # CREDENTIAL RESOLUTION (MERGED HERE)
@@ -10,37 +10,17 @@ import streamlit as st
 def get_databricks_credentials():
     """Single source of truth for Databricks auth"""
 
-    # 1. From Streamlit session (Settings tab)
     host = st.session_state.get("sb_db_host", "").strip()
     token = st.session_state.get("sb_db_token", "").strip()
 
     if host and token:
         return host, token
 
-    # 2. From environment (Databricks Apps / system env)
     host = os.environ.get("DATABRICKS_HOST")
     token = os.environ.get("DATABRICKS_TOKEN")
 
     if host and token:
         return host, token
-
-    # 3. CLI profile (~/.databrickscfg)
-    profile = st.session_state.get("sb_db_profile") or os.environ.get("DATABRICKS_CONFIG_PROFILE")
-
-    if profile:
-        import configparser
-        cfg_path = os.path.expanduser("~/.databrickscfg")
-
-        if os.path.exists(cfg_path):
-            config = configparser.ConfigParser()
-            config.read(cfg_path)
-
-            if profile in config:
-                host = config[profile].get("host")
-                token = config[profile].get("token")
-
-                if host and token:
-                    return host, token
 
     return None, None
 
@@ -66,7 +46,7 @@ class DatabricksClient:
         if not host or not token:
             raise ValueError(
                 "Databricks credentials not configured.\n"
-                "Go to Settings and provide Host + Token OR configure CLI profile."
+                "Go to Settings and provide Host + Token."
             )
 
         return cls(host, token)
@@ -137,3 +117,26 @@ class DatabricksClient:
             return {'success': True, 'path': path}
         except Exception as e:
             return {'error': str(e)}
+
+    def create_job(self, job_payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create a Databricks Job using Jobs API 2.1
+        """
+        try:
+            url = f"{self.workspace_url}/api/2.1/jobs/create"
+
+            response = requests.post(
+                url,
+                headers=self.headers,
+                json=job_payload,
+                timeout=30,
+            )
+
+            response.raise_for_status()
+            return response.json()   # {"job_id": ...}
+
+        except requests.HTTPError as e:
+            detail = e.response.text if e.response is not None else str(e)
+            return {"error": detail}
+        except Exception as e:
+            return {"error": str(e)}
