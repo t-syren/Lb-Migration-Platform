@@ -24,6 +24,7 @@ Not converted (no Databricks equivalent or requires manual substitution):
 import json
 import logging
 import os
+import posixpath
 import re
 import urllib.error
 import urllib.request
@@ -87,6 +88,7 @@ class OozieKill:
 @dataclass
 class WorkflowGraph:
     """Parsed representation of an entire Oozie workflow."""
+    name: str = ""
     actions: List[OozieAction] = field(default_factory=list)
     forks: Dict[str, OozieFork] = field(default_factory=dict)
     joins: Dict[str, OozieJoin] = field(default_factory=dict)
@@ -102,6 +104,8 @@ class WorkflowGraph:
 
 def _strip_ns(tag: str) -> str:
     """Remove namespace URI from an lxml tag string."""
+    if callable(tag):  # lxml Comment/PI nodes have a callable tag, not a string
+        return ""
     return tag.split("}")[-1] if "}" in tag else tag
 
 
@@ -166,7 +170,7 @@ def convert_xml(xml_str: str):
 def parse_workflow(xml_str: str) -> WorkflowGraph:
     """Parse a workflow XML into a WorkflowGraph capturing the full topology."""
     root = etree.fromstring(xml_str.encode("utf-8"))
-    graph = WorkflowGraph()
+    graph = WorkflowGraph(name=root.get("name", ""))
 
     # First pass: collect <global><configuration> (applies to all actions)
     for elem in root:
@@ -811,6 +815,12 @@ def workflow_to_dict(xml_str: str, job_name: str = "migrated-workflow") -> Dict[
             key=lambda t: (0 if t["task_key"] == graph.start_node else 1, t["task_key"])
         )
 
+    _default_cluster = {
+        "spark_version": "14.3.x-scala2.12",
+        "node_type_id":  "Standard_DS3_v2",
+        "num_workers":   2,
+    }
+
     payload: Dict[str, Any] = {
         "name":                  job_name,
         "email_notifications":   {},
@@ -818,17 +828,18 @@ def workflow_to_dict(xml_str: str, job_name: str = "migrated-workflow") -> Dict[
         "timeout_seconds":       86400,
         "max_concurrent_runs":   1,
         "tasks":                 tasks,
-        "job_clusters": [
-            {
-                "job_cluster_key": "default_cluster",
-                "new_cluster": {
-                    "spark_version": "14.3.x-scala2.12",
-                    "node_type_id":  "Standard_DS3_v2",
-                    "num_workers":   2,
-                },
-            }
-        ],
     }
+
+    if len(tasks) >= 2:
+        # Shared job cluster — only valid for multi-task jobs
+        payload["job_clusters"] = [
+            {"job_cluster_key": "default_cluster", "new_cluster": _default_cluster}
+        ]
+    else:
+        # Single-task or empty job: inline cluster per task; shared clusters are rejected
+        for t in tasks:
+            t.pop("job_cluster_key", None)
+            t["new_cluster"] = _default_cluster
 
     # Migration annotations (stripped before serialisation / API submission)
     notes: List[str] = []
@@ -909,22 +920,16 @@ def coordinator_to_dict(
             "max_concurrent_runs":   1,
             "tasks": [
                 {
-                    "task_key":        "placeholder_task",
-                    "depends_on":      [],
-                    "job_cluster_key": "default_cluster",
-                    "notebook_task": {
-                        "notebook_path": placeholder_path,
-                        "source": "WORKSPACE",
-                    },
-                }
-            ],
-            "job_clusters": [
-                {
-                    "job_cluster_key": "default_cluster",
+                    "task_key":   "placeholder_task",
+                    "depends_on": [],
                     "new_cluster": {
                         "spark_version": "14.3.x-scala2.12",
                         "node_type_id":  "Standard_DS3_v2",
                         "num_workers":   2,
+                    },
+                    "notebook_task": {
+                        "notebook_path": placeholder_path,
+                        "source": "WORKSPACE",
                     },
                 }
             ],
@@ -936,7 +941,14 @@ def coordinator_to_dict(
         )
 
     payload["schedule"] = schedule_block["schedule"]
-    payload["coordinator_metadata"] = schedule_block.get("_metadata", {})
+    payload["coordinator_info"] = {
+        "frequency":            schedule.frequency,
+        "start":                schedule.start,
+        "end":                  schedule.end,
+        "timezone":             schedule.timezone,
+        "workflow_app_path":    schedule.workflow_app_path,
+        "quartz_cron_expression": schedule.quartz_cron or "0 0 0 * * ?",
+    }
 
     return payload, warnings
 
@@ -990,44 +1002,218 @@ def bundle_to_dicts(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# DATABRICKS API — DEPLOY
+# MULTI-FILE CONVERSION  (coordinator ↔ workflow linking)
 # ══════════════════════════════════════════════════════════════════════════════
 
-# def deploy_workflow_to_databricks(
-#     job_payload: Dict[str, Any],
-#     host: str = "",
-#     token: str = "",
-# ) -> Dict[str, Any]:
-#     """
-#     POST a job payload to Databricks POST /api/2.1/jobs/create.
+def _app_path_basename(workflow_app_path: str) -> str:
+    """Extract the bare name from an Oozie <app-path> value.
 
-#     Returns {"job_id": <int>} on success, or {"error": <str>} on failure.
-#     All annotation keys (prefixed with '_') are stripped recursively before sending.
-#     """
-#     host  = (host  or os.environ.get("DATABRICKS_HOST",  "")).rstrip("/")
-#     token = (token or os.environ.get("DATABRICKS_TOKEN", ""))
+    Strips HDFS scheme (hdfs://host/...) and leading EL variables (${nameNode}/...)
+    then returns the last path segment without a trailing slash.
+    """
+    norm = re.sub(r"^\$\{[^}]+\}", "", workflow_app_path or "")
+    norm = re.sub(r"^hdfs://[^/]*", "", norm)
+    return posixpath.basename(norm.rstrip("/"))
 
-#     if not host or not token:
-#         return {"error": "DATABRICKS_HOST and DATABRICKS_TOKEN are required"}
 
-#     clean_payload = _strip_annotation_keys(job_payload)
+def _normalise_name(s: str) -> str:
+    """Lowercase and collapse hyphens/underscores to '_' for fuzzy name matching.
 
-#     url  = f"{host}/api/2.1/jobs/create"
-#     body = json.dumps(clean_payload).encode("utf-8")
-#     req  = urllib.request.Request(
-#         url,
-#         data=body,
-#         headers={
-#             "Authorization": f"Bearer {token}",
-#             "Content-Type":  "application/json",
-#         },
-#         method="POST",
-#     )
-#     try:
-#         with urllib.request.urlopen(req, timeout=30) as resp:
-#             return json.loads(resp.read().decode("utf-8"))
-#     except urllib.error.HTTPError as exc:
-#         detail = exc.read().decode("utf-8", errors="replace")
-#         return {"error": f"HTTP {exc.code}: {detail}"}
-#     except Exception as exc:
-#         return {"error": str(exc)}
+    Oozie paths commonly use hyphens (wf-sales) while workflow name attributes
+    use underscores (wf_sales).  Normalising both sides lets them match.
+    """
+    return re.sub(r"[-_]+", "_", s.lower())
+
+
+def _match_coordinator_to_workflow(
+    workflow_app_path: str,
+    workflow_files: Dict[str, Tuple[str, str]],
+) -> Optional[str]:
+    """Return the workflow name whose name or filename matches the coordinator's
+    <app-path> basename.  Returns None if no uploaded workflow matches.
+
+    Matching rules (in order, first match wins):
+    1. Exact: workflow name attribute == app-path basename
+    2. Exact: workflow filename stem == app-path basename
+    3. Normalised: hyphens and underscores treated as equivalent for rules 1 & 2
+
+    Loose heuristics (same directory, path-segment, substring) are excluded to
+    avoid false positives when unrelated workflow XMLs are uploaded together.
+    """
+    if not workflow_app_path or not workflow_files:
+        return None
+
+    app_base = _app_path_basename(workflow_app_path)
+    if not app_base:
+        return None
+
+    # ── Exact passes ─────────────────────────────────────────────────────────
+    # Priority 1: workflow name attribute == app-path basename (exact)
+    for wf_name in workflow_files:
+        if wf_name == app_base:
+            return wf_name
+
+    # Priority 2: workflow filename stem == app-path basename (exact)
+    for wf_name, (wf_path, _) in workflow_files.items():
+        stem = posixpath.basename(wf_path.replace("\\", "/"))
+        stem = stem.rsplit(".", 1)[0] if "." in stem else stem
+        if stem == app_base:
+            return wf_name
+
+    # ── Normalised passes (hyphen ↔ underscore) ───────────────────────────────
+    norm_base = _normalise_name(app_base)
+
+    # Priority 3a: normalised workflow name == normalised app-path basename
+    for wf_name in workflow_files:
+        if _normalise_name(wf_name) == norm_base:
+            return wf_name
+
+    # Priority 3b: normalised filename stem == normalised app-path basename
+    for wf_name, (wf_path, _) in workflow_files.items():
+        stem = posixpath.basename(wf_path.replace("\\", "/"))
+        stem = stem.rsplit(".", 1)[0] if "." in stem else stem
+        if _normalise_name(stem) == norm_base:
+            return wf_name
+
+    return None
+
+
+def convert_oozie_file_set(
+    files: Dict[str, str],
+) -> Dict[str, Any]:
+    """
+    Convert a set of Oozie XML files to Databricks Jobs API 2.1 payloads.
+
+    Workflow XMLs become independent Databricks jobs.
+    Coordinator XMLs become scheduled jobs that trigger workflow jobs via
+    ``run_job_task``.  The ``job_id`` field in each ``run_job_task`` is set to
+    the string sentinel ``"{{job_id:<workflow_name>}}"`` — callers must replace
+    it with the real Databricks job ID after creating the workflow jobs.
+
+    Parameters
+    ----------
+    files : {relative_path: xml_content}
+
+    Returns
+    -------
+    {
+        "jobs":             {job_name: job_dict},
+        "workflow_job_map": {wf_name: None},   # placeholder for real job IDs
+        "links":            [{"coordinator": str, "workflow": str | None}],
+        "warnings":         [str],
+    }
+    """
+    # ── Step A: categorise ────────────────────────────────────────────────────
+    # wf_name  → (file_path, xml_str)
+    workflow_files: Dict[str, Tuple[str, str]] = {}
+    # coord_name → (file_path, xml_str, CoordinatorSchedule)
+    coordinator_files: Dict[str, Tuple[str, str, "CoordinatorSchedule"]] = {}
+    warnings: List[str] = []
+
+    for file_path, xml in files.items():
+        if "<workflow-app" in xml:
+            try:
+                wf = parse_workflow(xml)
+                wf_name = wf.name or os.path.splitext(os.path.basename(file_path))[0]
+                workflow_files[wf_name] = (file_path, xml)
+            except Exception as exc:
+                warnings.append(f"Could not parse workflow '{file_path}': {exc}")
+        elif "<coordinator-app" in xml:
+            try:
+                coord = parse_coordinator(xml)
+                coord_name = coord.name or os.path.splitext(os.path.basename(file_path))[0]
+                coordinator_files[coord_name] = (file_path, xml, coord)
+            except Exception as exc:
+                warnings.append(f"Could not parse coordinator '{file_path}': {exc}")
+
+    # ── Step B: convert workflows (strip annotation keys for clean output) ────
+    workflow_jobs: Dict[str, Dict[str, Any]] = {}
+    for wf_name, (_, wf_xml) in workflow_files.items():
+        job = workflow_to_dict(wf_xml, job_name=wf_name)
+        workflow_jobs[wf_name] = _strip_annotation_keys(job)
+
+    # ── Step C: workflow_job_map — name → None (filled by caller after deploy) ─
+    workflow_job_map: Dict[str, Optional[int]] = {n: None for n in workflow_jobs}
+
+    # ── Steps D–H: convert coordinators ──────────────────────────────────────
+    coordinator_jobs: Dict[str, Dict[str, Any]] = {}
+    links: List[Dict[str, Optional[str]]] = []
+
+    for coord_name, (coord_path, coord_xml, coord) in coordinator_files.items():
+        # Step D: match coordinator → workflow via app-path basename
+        matched_wf = _match_coordinator_to_workflow(
+            coord.workflow_app_path, workflow_files
+        )
+
+        # Step E: get coordinator shell (schedule + metadata, no workflow tasks)
+        coord_job, coord_warns = coordinator_to_dict(coord_xml)
+        # coordinator_to_dict always appends "No workflow XML supplied" when called
+        # without workflow XML.  Suppress it here when a match was found — the
+        # matched branch uses run_job_task and the warning would be misleading.
+        if matched_wf:
+            warnings.extend(w for w in coord_warns if "No workflow XML supplied" not in w)
+        else:
+            warnings.extend(coord_warns)
+
+        # Step F: replace tasks with run_job_task (matched) or placeholder (unmatched)
+        if matched_wf:
+            task_key = f"run_{re.sub(r'[^a-zA-Z0-9_]', '_', matched_wf)}"
+            coord_job["tasks"] = [
+                {
+                    "task_key": task_key,
+                    "run_if": "ALL_SUCCESS",
+                    "depends_on": [],
+                    "run_job_task": {
+                        # Sentinel replaced by caller once workflow job is created
+                        "job_id": f"{{{{job_id:{matched_wf}}}}}",
+                    },
+                }
+            ]
+        else:
+            # No matching workflow XML uploaded — insert a notebook placeholder so
+            # the coordinator job is deployable; user replaces the notebook path.
+            app_path = coord.workflow_app_path or f"/Migrations/{coord_name}"
+            placeholder_key = f"run_{re.sub(r'[^a-zA-Z0-9_]', '_', _app_path_basename(app_path) or coord_name)}"
+            coord_job["tasks"] = [
+                {
+                    "task_key": placeholder_key,
+                    "run_if": "ALL_SUCCESS",
+                    "depends_on": [],
+                    "notebook_task": {
+                        "notebook_path": app_path,
+                        "source": "WORKSPACE",
+                    },
+                    "new_cluster": {
+                        "spark_version": "14.3.x-scala2.12",
+                        "node_type_id":  "Standard_DS3_v2",
+                        "num_workers":   2,
+                    },
+                }
+            ]
+            warn_msg = (
+                f"No workflow XML supplied for coordinator '{coord_name}'. "
+                f"A placeholder task pointing to '{app_path}' was inserted. "
+                "Replace it with the actual migrated notebook path."
+            )
+            coord_job["migration_warnings"] = [warn_msg]
+            # warn_msg is already in coord_warns (from coordinator_to_dict) — don't duplicate
+
+        # Step G: coordinators trigger jobs, they do not run cluster tasks
+        coord_job.pop("job_clusters", None)
+
+        # Step H: track link
+        links.append({"coordinator": coord_name, "workflow": matched_wf})
+        coordinator_jobs[coord_name] = coord_job
+
+    # ── Step I: combine ───────────────────────────────────────────────────────
+    jobs: Dict[str, Dict[str, Any]] = {}
+    jobs.update(workflow_jobs)
+    jobs.update(coordinator_jobs)
+
+    return {
+        "jobs": jobs,
+        "workflow_job_map": workflow_job_map,
+        "links": links,
+        "warnings": warnings,
+    }
+
