@@ -52,7 +52,7 @@ class OozieAction:
     error_to: str = ""
     config: Dict[str, Any] = field(default_factory=dict)
     retry_max: int = 1
-    retry_interval_ms: int = 60_000  # milliseconds
+    retry_interval_ms: int = 60000  # milliseconds
 
 
 @dataclass
@@ -148,7 +148,17 @@ def _strip_annotation_keys(obj: Any) -> Any:
         return [_strip_annotation_keys(item) for item in obj]
     return obj
 
-
+def convert_xml(xml_str: str):
+    if "<coordinator-app" in xml_str:
+        job, warnings = coordinator_to_dict(xml_str)
+        if warnings:
+            print("⚠️ Coordinator warnings:", warnings)
+        return json.dumps(job, indent=2)
+        # return json.dumps(coordinator_to_dict(xml_str), indent=2)
+    elif "<workflow-app" in xml_str:
+        return workflow_to_json(xml_str)
+    else:
+        raise ValueError("Unknown XML type")
 # ══════════════════════════════════════════════════════════════════════════════
 # WORKFLOW PARSER  (actions, fork/join, decision, kill, start, global)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -220,8 +230,10 @@ def parse_workflow(xml_str: str) -> WorkflowGraph:
         # ── Action ────────────────────────────────────────────────────────────
         elif tag == "action":
             action_name = elem.get("name", "")
-            retry_max = int(elem.get("retry-max", "1"))
-            retry_interval_ms = int(elem.get("retry-interval", "1")) * 60_000
+            # Attributes take precedence; child elements (<retry-max>, <retry-interval>)
+            # are also accepted for compatibility with workflow variants that use them.
+            retry_max = int(elem.get("retry-max", "1") or "1")
+            retry_interval_ms = int(elem.get("retry-interval", "1") or "1") * 60000
 
             action_type = None
             ok_to = ""
@@ -235,6 +247,10 @@ def parse_workflow(xml_str: str) -> WorkflowGraph:
                     ok_to = child.get("to", "")
                 elif child_tag == "error":
                     error_to = child.get("to", "")
+                elif child_tag == "retry-max":
+                    retry_max = int((child.text or "1").strip())
+                elif child_tag == "retry-interval":
+                    retry_interval_ms = int((child.text or "1").strip()) * 60000
                 elif child_tag in _OOZIE_ACTION_TYPES:
                     action_type = child_tag
                     files: List[str] = []
@@ -283,69 +299,100 @@ def parse_workflow(xml_str: str) -> WorkflowGraph:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PREDECESSOR RESOLVER  (fork/join/decision → depends_on)
+# PREDECESSOR RESOLVER  (fork/join/decision/error → depends_on + run_if)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _resolve_predecessors(graph: WorkflowGraph) -> Dict[str, List[str]]:
+def _resolve_predecessors(
+    graph: WorkflowGraph,
+) -> Tuple[Dict[str, List[str]], Dict[str, str]]:
     """
-    Compute the direct action/decision predecessors for every action and
-    decision node.
+    Compute predecessors and run_if for every action and decision node.
 
-    Fork  → each branch-start node inherits the fork's upstream action(s).
-    Join  → the node after the join depends on ALL branch-ending actions.
-    Decision → each branch-start inherits the decision node itself as predecessor.
+    Returns
+    -------
+    predecessors : node → ordered list of predecessor task/decision names
+    run_if_map   : node → Databricks run_if string
 
-    Pseudo-nodes (fork, join) are transparent — we walk through them to reach
-    the nearest real (action or decision) node.
+    Edge semantics
+    ──────────────
+    ok_to    → success path  → run_if = ALL_SUCCESS
+    error_to → failure path  → run_if = AT_LEAST_ONE_FAILED
+    mixed    → both types    → run_if = ALL_DONE
+
+    Fork / Join / Decision are pseudo-nodes: transparent in traversal.
+    error_to pointing to a kill node or "end" is ignored (not a task).
     """
-    action_names = {a.name for a in graph.actions}
-    decision_names = set(graph.decisions.keys())
-    real_nodes = action_names | decision_names
-    pseudo_nodes = set(graph.forks) | set(graph.joins)
+    action_names: set = {a.name for a in graph.actions}
+    decision_names: set = set(graph.decisions.keys())
+    real_nodes: set = action_names | decision_names
+    pseudo_nodes: set = set(graph.forks) | set(graph.joins)
+    terminal_names: set = set(graph.kills.keys()) | {"end"}
 
-    # Build: node → [nodes that have an ok-edge pointing to it]
-    incoming: Dict[str, List[str]] = {}
+    # ── ok-path incoming edges ─────────────────────────────────────────────────
+    ok_in: Dict[str, List[str]] = {}
 
-    # Action ok_to edges
     for action in graph.actions:
         if action.ok_to:
-            incoming.setdefault(action.ok_to, []).append(action.name)
+            ok_in.setdefault(action.ok_to, []).append(action.name)
 
-    # Fork fan-out: fork → ALL branch starts (not just the first)
     for fork_name, fork in graph.forks.items():
         for path in fork.paths:
-            incoming.setdefault(path, []).append(fork_name)
+            ok_in.setdefault(path, []).append(fork_name)
 
-    # Join fan-in: join → the node after the join
     for join_name, join in graph.joins.items():
         if join.to:
-            incoming.setdefault(join.to, []).append(join_name)
+            ok_in.setdefault(join.to, []).append(join_name)
 
-    # Decision fan-out: decision → all case/default targets
     for dec_name, decision in graph.decisions.items():
         for _, to_node in decision.cases:
             if to_node:
-                incoming.setdefault(to_node, []).append(dec_name)
+                ok_in.setdefault(to_node, []).append(dec_name)
         if decision.default:
-            incoming.setdefault(decision.default, []).append(dec_name)
+            ok_in.setdefault(decision.default, []).append(dec_name)
 
-    def resolve(node_name: str) -> List[str]:
-        """Walk backwards through pseudo-nodes to reach real predecessors."""
-        result: List[str] = []
+    # ── error-path incoming edges ──────────────────────────────────────────────
+    err_in: Dict[str, List[str]] = {}
+
+    for action in graph.actions:
+        if action.error_to and action.error_to not in terminal_names:
+            err_in.setdefault(action.error_to, []).append(action.name)
+
+    # ── traversal: walk through pseudo-nodes to reach real predecessors ────────
+    def resolve(node_name: str, incoming: Dict[str, List[str]]) -> List[str]:
+        result_preds: List[str] = []
         for pred in incoming.get(node_name, []):
             if pred in real_nodes:
-                result.append(pred)
+                result_preds.append(pred)
             elif pred in pseudo_nodes:
-                result.extend(resolve(pred))
-        return result
+                result_preds.extend(resolve(pred, ok_in))
+        return result_preds
 
+    # ── assemble per-node results ──────────────────────────────────────────────
     predecessors: Dict[str, List[str]] = {}
-    for action in graph.actions:
-        predecessors[action.name] = resolve(action.name)
-    for dec_name in graph.decisions:
-        predecessors[dec_name] = resolve(dec_name)
+    run_if_map: Dict[str, str] = {}
 
-    return predecessors
+    for node_name in list(action_names) + list(decision_names):
+        ok_preds = resolve(node_name, ok_in)
+        err_preds = resolve(node_name, err_in)
+
+        # Merge, preserving order and deduplicating
+        seen: set = set()
+        merged: List[str] = []
+        for p in ok_preds + err_preds:
+            if p not in seen:
+                seen.add(p)
+                merged.append(p)
+
+        predecessors[node_name] = merged
+
+        if ok_preds and err_preds:
+            run_if_map[node_name] = "ALL_DONE"
+        elif err_preds:
+            run_if_map[node_name] = "AT_LEAST_ONE_FAILED"
+        else:
+            run_if_map[node_name] = "ALL_SUCCESS"
+
+    return predecessors, run_if_map
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -356,14 +403,15 @@ def _action_to_task(
     action: OozieAction,
     predecessors: List[str],
     global_config: Optional[Dict[str, str]] = None,
+    run_if: str = "ALL_SUCCESS",
 ) -> Dict[str, Any]:
     task: Dict[str, Any] = {
         "task_key":                   action.name,
         "depends_on":                 [{"task_key": p} for p in predecessors],
         "job_cluster_key":            "default_cluster",
-        "run_if":                     "ALL_SUCCESS",
-        "max_retries":                action.retry_max,
-        "min_retry_interval_millis":  action.retry_interval_ms,
+        "run_if":                     run_if,
+        "max_retries":                 getattr(action, "retry_max", 1),
+        "min_retry_interval_millis":  getattr(action, "retry_interval_ms", 60000),
         "retry_on_timeout":           True,
         "timeout_seconds":            3600,
         "email_notifications":        {},
@@ -373,13 +421,6 @@ def _action_to_task(
     combined_params: Dict[str, str] = dict(global_config or {})
     if isinstance(action.config.get("properties"), dict):
         combined_params.update(action.config["properties"])
-
-    # Non-trivial error routing (not going to kill/end) → annotation
-    if action.error_to and action.error_to not in ("kill", "end", ""):
-        task["_error_to"] = (
-            f"On error, Oozie routed to '{action.error_to}'. "
-            "Map this to on_failure_email_notifications or a dedicated error-handling task."
-        )
 
     # File/archive distributions → annotation only (no Databricks equivalent)
     if action.config.get("files") or action.config.get("archives"):
@@ -658,8 +699,10 @@ def coordinator_schedule_to_databricks(schedule: CoordinatorSchedule) -> Dict[st
         "schedule": {
             "quartz_cron_expression": cron,
             "timezone_id":            _parse_coordinator_timezone(schedule.timezone),
-            "pause_status":           "UNPAUSED",
+            "pause_status":           "PAUSED",
         },
+            # ✅ ADD THIS BLOCK
+       
         "_warnings": warnings,
         "_metadata": {
             "oozie_frequency":         schedule.frequency,
@@ -742,19 +785,25 @@ def workflow_to_dict(xml_str: str, job_name: str = "migrated-workflow") -> Dict[
     Keys prefixed with '_' are migration annotations (stripped before API submission).
     """
     graph = parse_workflow(xml_str)
-    predecessors_map = _resolve_predecessors(graph)
+    pred_map, run_if_map = _resolve_predecessors(graph)
 
     tasks: List[Dict[str, Any]] = []
 
     # Decision placeholder tasks first (actions may depend on them)
     for dec_name, decision in graph.decisions.items():
-        tasks.append(_decision_to_task(decision, predecessors_map.get(dec_name, [])))
+        tasks.append(_decision_to_task(decision, pred_map.get(dec_name, [])))
 
     # Action tasks
     for action in graph.actions:
         tasks.append(
-            _action_to_task(action, predecessors_map[action.name], graph.global_config)
+            _action_to_task(
+                action,
+                pred_map.get(action.name, []),
+                graph.global_config,
+                run_if_map.get(action.name, "ALL_SUCCESS"),
+            )
         )
+
 
     # Sort so the start node appears first (cosmetic — Databricks ignores order)
     if graph.start_node:
@@ -821,7 +870,14 @@ def workflow_to_json(xml_str: str, job_name: str = "migrated-workflow") -> str:
 # ══════════════════════════════════════════════════════════════════════════════
 # COORDINATOR / BUNDLE → DATABRICKS JOB PAYLOAD
 # ══════════════════════════════════════════════════════════════════════════════
+from datetime import datetime
 
+def _to_epoch_millis(ts):
+    try:
+        return int(datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() * 1000)
+    except:
+        return None
+    
 def coordinator_to_dict(
     coord_xml_str: str,
     workflow_xml_str: Optional[str] = None,
@@ -880,7 +936,7 @@ def coordinator_to_dict(
         )
 
     payload["schedule"] = schedule_block["schedule"]
-    payload["_coordinator_metadata"] = schedule_block.get("_metadata", {})
+    payload["coordinator_metadata"] = schedule_block.get("_metadata", {})
 
     return payload, warnings
 
@@ -921,7 +977,7 @@ def bundle_to_dicts(
             payload["schedule"] = {
                 "quartz_cron_expression": "0 0 0 * * ?",
                 "timezone_id":            "UTC",
-                "pause_status":           "UNPAUSED",
+                "pause_status":           "PAUSED",
             }
             warnings.append(
                 f"Bundle kickoff_time '{entry.kickoff_time}' noted but could not be "
@@ -937,41 +993,41 @@ def bundle_to_dicts(
 # DATABRICKS API — DEPLOY
 # ══════════════════════════════════════════════════════════════════════════════
 
-def deploy_workflow_to_databricks(
-    job_payload: Dict[str, Any],
-    host: str = "",
-    token: str = "",
-) -> Dict[str, Any]:
-    """
-    POST a job payload to Databricks POST /api/2.1/jobs/create.
+# def deploy_workflow_to_databricks(
+#     job_payload: Dict[str, Any],
+#     host: str = "",
+#     token: str = "",
+# ) -> Dict[str, Any]:
+#     """
+#     POST a job payload to Databricks POST /api/2.1/jobs/create.
 
-    Returns {"job_id": <int>} on success, or {"error": <str>} on failure.
-    All annotation keys (prefixed with '_') are stripped recursively before sending.
-    """
-    host  = (host  or os.environ.get("DATABRICKS_HOST",  "")).rstrip("/")
-    token = (token or os.environ.get("DATABRICKS_TOKEN", ""))
+#     Returns {"job_id": <int>} on success, or {"error": <str>} on failure.
+#     All annotation keys (prefixed with '_') are stripped recursively before sending.
+#     """
+#     host  = (host  or os.environ.get("DATABRICKS_HOST",  "")).rstrip("/")
+#     token = (token or os.environ.get("DATABRICKS_TOKEN", ""))
 
-    if not host or not token:
-        return {"error": "DATABRICKS_HOST and DATABRICKS_TOKEN are required"}
+#     if not host or not token:
+#         return {"error": "DATABRICKS_HOST and DATABRICKS_TOKEN are required"}
 
-    clean_payload = _strip_annotation_keys(job_payload)
+#     clean_payload = _strip_annotation_keys(job_payload)
 
-    url  = f"{host}/api/2.1/jobs/create"
-    body = json.dumps(clean_payload).encode("utf-8")
-    req  = urllib.request.Request(
-        url,
-        data=body,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type":  "application/json",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        return {"error": f"HTTP {exc.code}: {detail}"}
-    except Exception as exc:
-        return {"error": str(exc)}
+#     url  = f"{host}/api/2.1/jobs/create"
+#     body = json.dumps(clean_payload).encode("utf-8")
+#     req  = urllib.request.Request(
+#         url,
+#         data=body,
+#         headers={
+#             "Authorization": f"Bearer {token}",
+#             "Content-Type":  "application/json",
+#         },
+#         method="POST",
+#     )
+#     try:
+#         with urllib.request.urlopen(req, timeout=30) as resp:
+#             return json.loads(resp.read().decode("utf-8"))
+#     except urllib.error.HTTPError as exc:
+#         detail = exc.read().decode("utf-8", errors="replace")
+#         return {"error": f"HTTP {exc.code}: {detail}"}
+#     except Exception as exc:
+#         return {"error": str(exc)}

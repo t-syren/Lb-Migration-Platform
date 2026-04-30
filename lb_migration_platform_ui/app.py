@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+from urllib import response
 import zipfile
 from pathlib import Path
 
@@ -24,7 +25,7 @@ import streamlit as st
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from modules.oozie_converter import workflow_to_json, parse_workflow
+from modules.oozie_converter import workflow_to_json, parse_workflow,coordinator_to_dict,parse_coordinator,convert_xml
 from modules.databricks_service import DatabricksClient, get_databricks_credentials
 from modules.sql_transpiler import run_hive_transpiler
 from modules.llm_converter import LLMConverter, load_prompt
@@ -665,8 +666,22 @@ def render_oozie_workflow_create_section(tp_out_dir: str, key_suffix: str) -> No
                     return
 
                 job_payload = json.loads(selected_file.read_text(encoding="utf-8"))
+                # ==============================
+                # VALIDATION
+                # ==============================
+                if "tasks" not in job_payload or not job_payload["tasks"]:
+                    st.error("❌ Invalid job: missing or empty 'tasks'")
+                    st.stop()
+
+                # ==============================
+                # SHOW PAYLOAD
+                # ==============================
+                st.subheader("🚨 Job Payload Sent to Databricks")
+                # st.json(job_payload)
                 dbx = DatabricksClient.from_app_context()
                 response = dbx.create_job(job_payload)
+                st.subheader("📡 Databricks API Response")
+                st.json(response)
 
                 if "job_id" in response:
                     job_id = response["job_id"]
@@ -702,20 +717,18 @@ def render_transpile_output_section() -> None:
     st.markdown("<hr class='section-sep'>", unsafe_allow_html=True)
 
     if info.get("is_oozie"):
-        st.markdown(
-            '<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;'
-            'padding:0.75rem 1rem;margin-bottom:1rem;font-size:0.87rem;color:#92400e;">'
-            '⚠️ <strong>Oozie Limitations to review in the generated JSON:</strong>'
-            '<ul style="margin:0.4rem 0 0 1rem;padding:0;line-height:1.8;">'
-            '<li><strong>Fork/Join not supported</strong> — parallel branches (<code>&lt;fork&gt;</code>/<code>&lt;join&gt;</code>) '
-            'are silently skipped. Review your workflow XML for these nodes and add the parallel tasks manually in the Databricks Workflow editor.</li>'
-            '<li><strong>EL expressions</strong> (<code>${variable}</code>) are preserved as-is — replace them with Databricks job parameters or widget values.</li>'
-            '<li><strong>Coordinator &amp; Bundle</strong> schedules are not converted — recreate them as Databricks Job schedules (cron or trigger-based).</li>'
-            '<li>Placeholder values marked <code>&lt;replace: …&gt;</code> must be filled in before deploying the job.</li>'
-            '</ul>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
+        st.markdown("⚠️ **Oozie Conversion Limitations**")
+        with st.expander("ℹ️ View details"):
+            st.markdown("""
+        - **EL expressions** (`${variable}`) are preserved as-is — replace them with Databricks job parameters or widgets.
+        - **Coordinator workflows** are partially supported — schedules are converted, but linked workflow tasks must be manually verified or replaced.Default shchedule is paused after creation to allow for manual review before activation.
+        - **Bundle workflows** are not supported — convert each coordinator individually and recreate orchestration manually.
+        - **Workflow linking** between coordinator and workflow XML is not fully automated — ensure correct task mapping.
+        - **Placeholder tasks** (e.g., `/Workspace/Shared/oozie_placeholder`) must be replaced with actual notebooks.
+        - **Parallel execution (fork/join)** may require manual validation to ensure correct dependencies.
+        - **Error handling** logic is simplified — validate failure paths and retry behavior.
+        - **Cluster config** is not automatically optimized — review and adjust cluster settings for Databricks jobs after conversion.
+        """)
         render_oozie_workflow_create_section(tp_out_dir, "main")
 
     st.markdown("""
@@ -734,41 +747,7 @@ def render_transpile_output_section() -> None:
             info.get("llm_statements_replaced", 0)
         )
     )
-    # mc1, mc2, mc3 = st.columns(3)
-    # with mc1:
-    #     st.markdown(f"""
-    #     <div class="metric-card">
-    #         <div class="metric-icon">📁</div>
-    #         <div class="metric-val">{n_src}</div>
-    #         <div class="metric-lbl">Files Processed</div>
-    #     </div>""", unsafe_allow_html=True)
-    # with mc2:
-    #     st.markdown(f"""
-    #     <div class="metric-card">
-    #         <div class="metric-icon">✅</div>
-    #         <div class="metric-val">{n_out}</div>
-    #         <div class="metric-lbl">Files Generated</div>
-    #     </div>""", unsafe_allow_html=True)
-    # with mc3:
-    #     st.markdown(f"""
-    #     <div class="metric-card">
-    #         <div class="metric-icon">⚡</div>
-    #         <div class="metric-val">{elapsed:.1f}s</div>
-    #         <div class="metric-lbl">Time Taken</div>
-    #     </div>""", unsafe_allow_html=True)
-
-    # if info.get("llm_files_sent", 0):
-    #     llm_metric_col, _, _ = st.columns([1, 2, 2])
-    #     with llm_metric_col:
-    #         st.markdown(f"""
-    #         <div class="metric-card">
-    #             <div class="metric-icon">LLM</div>
-    #             <div class="metric-val">{info.get("llm_statements_replaced", 0)}</div>
-    #             <div class="metric-lbl">LLM Enhanced ({info.get("llm_files_sent", 0)} file{'s' if info.get("llm_files_sent", 0) != 1 else ''})</div>
-    #         </div>""", unsafe_allow_html=True)
-
-    # st.markdown("<div style='height:1.25rem'></div>", unsafe_allow_html=True)
-
+    
     zip_bytes = zip_directory(tp_out_dir)
     zip_name = f"transpiled_{dialect_cli}_{target_cli.lower()}.zip"
     dl_col, info_col = st.columns([1, 2])
@@ -1169,7 +1148,6 @@ def run_oozie_converter(
     errors: list[str] = []
     processed = 0
     generated = 0
-
     for src_file in sorted(src_root.rglob("*.xml")):
         if not src_file.is_file():
             continue
@@ -1178,7 +1156,8 @@ def run_oozie_converter(
         try:
             xml_str = src_file.read_text(encoding="utf-8", errors="replace")
             job_name = src_file.stem  # filename without extension as job name
-            job_json = workflow_to_json(xml_str, job_name=job_name)
+            # job_json = workflow_to_json(xml_str, job_name=job_name)
+            job_json = convert_xml(xml_str)
         except Exception as exc:
             errors.append(f"{rel_path}: conversion error — {exc}")
             continue
@@ -2475,23 +2454,18 @@ elif selected_page == "Transpiler":
 
                 # Oozie-specific notes shown with results
                 if dialect_info.get("oozie"):
-                    st.markdown(
-                        '<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;'
-                        'padding:0.75rem 1rem;margin-bottom:1rem;font-size:0.87rem;color:#92400e;">'
-                        '⚠️ <strong>Oozie Limitations to review in the generated JSON:</strong>'
-                        '<ul style="margin:0.4rem 0 0 1rem;padding:0;line-height:1.8;">'
-                        '<li><strong>Fork/Join not supported</strong> — parallel branches (<code>&lt;fork&gt;</code>/<code>&lt;join&gt;</code>) '
-                        'are silently skipped. Review your workflow XML for these nodes and add the parallel tasks manually in the Databricks Workflow editor.</li>'
-                        '<li><strong>EL expressions</strong> (<code>${variable}</code>) are preserved as-is — replace them with Databricks job parameters or widget values.</li>'
-                        '<li><strong>Coordinator &amp; Bundle</strong> schedules are not converted — recreate them as Databricks Job schedules (cron or trigger-based).</li>'
-                        '<li>Placeholder values marked <code>&lt;replace: …&gt;</code> must be filled in before deploying the job.</li>'
-                        '<li>Cluster configuration values must be updated after deploying the job based on size of the data.</li>'
-                        '<li>Notebook paths should be updated,after deploying the job current paths are based on oozie workflow.</li>'
-                        '</ul>'
-                        '</div>',
-                        unsafe_allow_html=True,
-                    )
-
+                    st.markdown("⚠️ **Oozie Conversion Limitations**")
+                    with st.expander("ℹ️ View details"):
+                        st.markdown("""
+                    - **EL expressions** (`${variable}`) are preserved as-is — replace them with Databricks job parameters or widgets.
+                    - **Coordinator workflows** are partially supported — schedules are converted, but linked workflow tasks must be manually verified or replaced.Default shchedule is paused after creation to allow for manual review before activation.
+                    - **Bundle workflows** are not supported — convert each coordinator individually and recreate orchestration manually.
+                    - **Workflow linking** between coordinator and workflow XML is not fully automated — ensure correct task mapping.
+                    - **Placeholder tasks** (e.g., `/Workspace/Shared/oozie_placeholder`) must be replaced with actual notebooks.
+                    - **Parallel execution (fork/join)** may require manual validation to ensure correct dependencies.
+                    - **Error handling** logic is simplified — validate failure paths and retry behavior.
+                    - **Cluster config** is not automatically optimized — review and adjust cluster settings for Databricks jobs after conversion.
+                    """)
                     render_oozie_workflow_create_section(tp_out_dir, "main")
 
                 st.markdown("""

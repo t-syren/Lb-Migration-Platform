@@ -117,6 +117,49 @@ def _global_config_xml() -> str:
 </workflow-app>"""
 
 
+def _retry_child_xml() -> str:
+    """retry-max / retry-interval as child elements (alternative to attributes)."""
+    return """<?xml version="1.0"?>
+<workflow-app name="retry-child-test" xmlns="uri:oozie:workflow:0.5">
+  <start to="a1"/>
+  <action name="a1">
+    <hive xmlns="uri:oozie:hive-action:0.2">
+      <script>a1.hql</script>
+    </hive>
+    <ok to="end"/><error to="fail"/>
+    <retry-max>4</retry-max>
+    <retry-interval>2</retry-interval>
+  </action>
+  <kill name="fail"><message>failed</message></kill>
+  <end name="end"/>
+</workflow-app>"""
+
+
+def _error_routing_xml() -> str:
+    """workflow where error_to points to a real action (not a kill node)."""
+    return """<?xml version="1.0"?>
+<workflow-app name="error-routing-test" xmlns="uri:oozie:workflow:0.5">
+  <start to="main"/>
+  <action name="main">
+    <hive xmlns="uri:oozie:hive-action:0.2"><script>main.hql</script></hive>
+    <ok to="next"/>
+    <error to="cleanup"/>
+  </action>
+  <action name="cleanup">
+    <shell xmlns="uri:oozie:shell-action:0.2"><exec>cleanup.sh</exec></shell>
+    <ok to="end"/>
+    <error to="fail"/>
+  </action>
+  <action name="next">
+    <hive xmlns="uri:oozie:hive-action:0.2"><script>next.hql</script></hive>
+    <ok to="end"/>
+    <error to="fail"/>
+  </action>
+  <kill name="fail"><message>failed</message></kill>
+  <end name="end"/>
+</workflow-app>"""
+
+
 def _subworkflow_xml() -> str:
     return """<?xml version="1.0"?>
 <workflow-app name="sub-test" xmlns="uri:oozie:workflow:0.5">
@@ -426,3 +469,52 @@ class TestKillNodes:
         job = workflow_to_dict(WORKFLOW_XML)
         task_keys = {t["task_key"] for t in job["tasks"]}
         assert "fail" not in task_keys
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Retry child elements
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestRetryChildElements:
+    def setup_method(self):
+        self.task_map = {
+            t["task_key"]: t
+            for t in workflow_to_dict(_retry_child_xml())["tasks"]
+        }
+
+    def test_retry_max_from_child_element(self):
+        assert self.task_map["a1"]["max_retries"] == 4
+
+    def test_retry_interval_from_child_element(self):
+        # 2 minutes × 60_000 ms/min = 120_000 ms
+        assert self.task_map["a1"]["min_retry_interval_millis"] == 120_000
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Error routing
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestErrorRouting:
+    def setup_method(self):
+        self.job = workflow_to_dict(_error_routing_xml())
+        self.task_map = {t["task_key"]: t for t in self.job["tasks"]}
+
+    def test_cleanup_depends_on_main(self):
+        deps = {d["task_key"] for d in self.task_map["cleanup"]["depends_on"]}
+        assert "main" in deps
+
+    def test_cleanup_run_if_at_least_one_failed(self):
+        assert self.task_map["cleanup"]["run_if"] == "AT_LEAST_ONE_FAILED"
+
+    def test_next_run_if_all_success(self):
+        # "next" is reached only via main.ok_to — must stay ALL_SUCCESS
+        assert self.task_map["next"]["run_if"] == "ALL_SUCCESS"
+
+    def test_error_handler_not_a_kill_task(self):
+        # "fail" is a kill node — must not appear as a task
+        assert "fail" not in self.task_map
+
+    def test_cleanup_in_json_output(self):
+        parsed = json.loads(workflow_to_json(_error_routing_xml()))
+        task_keys = {t["task_key"] for t in parsed["tasks"]}
+        assert "cleanup" in task_keys
