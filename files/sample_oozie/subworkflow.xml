@@ -1,0 +1,14 @@
+<workflow-app xmlns="uri:oozie:workflow:0.5" name="test-subflow">
+  <start to="sub1"/>
+
+  <action name="sub1">
+    <sub-workflow>
+      <app-path>/path/to/child</app-path>
+    </sub-workflow>
+    <ok to="end"/>
+    <error to="fail"/>
+  </action>
+
+  <kill name="fail"><message>fail</message></kill>
+  <end name="end"/>
+</workflow-app>

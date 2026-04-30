@@ -1,0 +1,16 @@
+<coordinator-app name="coord-multi-workflow"
+    frequency="${coord:hours(1)}"
+    start="2024-01-01T00:00Z"
+    end="2024-01-02T00:00Z"
+    timezone="UTC"
+    xmlns="uri:oozie:coordinator:0.4">
+
+    <!-- Action 1 -->
+    <action>
+        <workflow>
+            <app-path>/apps/wf-sales</app-path>
+        </workflow>
+    </action>
+
+    
+</coordinator-app>

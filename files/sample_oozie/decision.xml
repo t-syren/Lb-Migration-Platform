@@ -1,0 +1,30 @@
+<workflow-app xmlns="uri:oozie:workflow:0.5" name="test-decision">
+  <start to="decision1"/>
+
+  <decision name="decision1">
+    <switch>
+      <case to="hive1">${type == 'A'}</case>
+      <case to="shell1">${type == 'B'}</case>
+      <default to="end"/>
+    </switch>
+  </decision>
+
+  <action name="hive1">
+    <hive xmlns="uri:oozie:hive-action:0.2">
+      <script>a.hql</script>
+    </hive>
+    <ok to="end"/>
+    <error to="fail"/>
+  </action>
+
+  <action name="shell1">
+    <shell xmlns="uri:oozie:shell-action:0.2">
+      <exec>b.sh</exec>
+    </shell>
+    <ok to="end"/>
+    <error to="fail"/>
+  </action>
+
+  <kill name="fail"><message>fail</message></kill>
+  <end name="end"/>
+</workflow-app>

@@ -1,0 +1,16 @@
+<workflow-app xmlns="uri:oozie:workflow:0.5" name="test-retry">
+  <start to="task1"/>
+
+  <action name="task1">
+    <shell xmlns="uri:oozie:shell-action:0.2">
+      <exec>a.sh</exec>
+    </shell>
+    <retry-max>3</retry-max>
+    <retry-interval>10</retry-interval>
+    <ok to="end"/>
+    <error to="fail"/>
+  </action>
+
+  <kill name="fail"><message>fail</message></kill>
+  <end name="end"/>
+</workflow-app>

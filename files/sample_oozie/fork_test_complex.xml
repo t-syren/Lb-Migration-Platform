@@ -1,0 +1,35 @@
+<workflow-app xmlns="uri:oozie:workflow:0.5" name="fork_after_action">
+  <start to="task0"/>
+
+  <action name="task0">
+    <shell xmlns="uri:oozie:shell-action:0.2">
+      <exec>init.sh</exec>
+    </shell>
+    <ok to="fork1"/>
+    <error to="fail"/>
+  </action>
+
+  <fork name="fork1">
+    <path start="task1"/>
+    <path start="task2"/>
+  </fork>
+
+  <action name="task1">
+    <shell xmlns="uri:oozie:shell-action:0.2">
+      <exec>a.sh</exec>
+    </shell>
+    <ok to="end"/>
+    <error to="fail"/>
+  </action>
+
+  <action name="task2">
+    <shell xmlns="uri:oozie:shell-action:0.2">
+      <exec>b.sh</exec>
+    </shell>
+    <ok to="end"/>
+    <error to="fail"/>
+  </action>
+
+  <kill name="fail"><message>fail</message></kill>
+  <end name="end"/>
+</workflow-app>
