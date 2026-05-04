@@ -142,22 +142,182 @@ The transpiler (`modules/sql_transpiler.py`) processes Hive SQL in three stages:
 
 ### 2. Oozie (Workflow) — 11th Dialect
 
-Apache Oozie is not supported by Lakebridge. SyrenBridge adds it as the 11th transpiler dialect:
+Apache Oozie is not supported by Lakebridge. SyrenBridge adds it as the 11th transpiler dialect via a custom lxml-based converter (`modules/oozie_converter.py`).
 
-- **Input**: Oozie `workflow.xml` files
-- **Parser**: lxml-based XML parser (`modules/oozie_converter.py`) that extracts actions, action types, dependencies, and parameters
-- **Output**: Databricks Jobs API 2.1 JSON (`/api/2.1/jobs` format), ready to import via the Databricks CLI or SDK
-- **Action type mapping**:
+**Accepted inputs (upload any combination):**
+- `workflow.xml` — Oozie workflow definition → standalone Databricks job
+- `coordinator.xml` — Oozie coordinator (schedule + workflow reference) → scheduled Databricks job
+- Both together — coordinator is automatically linked to the workflow via `run_job_task`
 
-| Oozie Action | Databricks Task Type |
-|-------------|---------------------|
-| `hive` | `sql_task` (SQL Warehouse query) |
-| `spark` | `spark_jar_task` |
-| `shell` | `notebook_task` (shell wrapper notebook) |
-| `java` | `spark_jar_task` |
-| other (pig, sqoop, etc.) | `notebook_task` (migration stub) |
+**Output:** One `.json` file per job (Databricks Jobs API 2.1 format). Deploy using the **Create Databricks Workflow** button in the UI, or via Databricks CLI / SDK.
 
-- **DAG support**: handles fan-in dependencies (multiple upstream actions pointing to the same downstream action)
+---
+
+#### Workflow Conversion (Standalone)
+
+A single `workflow.xml` converts to a complete Databricks job payload with all tasks, dependencies, and cluster config pre-filled.
+
+**Supported Oozie constructs:**
+
+| Oozie Construct | Databricks Output |
+|---|---|
+| `<action type="hive">` | `notebook_task` at `/Migrations/hive/<name>` with script path + params in `base_parameters` |
+| `<action type="spark">` | `spark_jar_task` with `main_class_name` and `parameters` |
+| `<action type="shell">` | `notebook_task` at `/Migrations/shell/<name>` with exec + args |
+| `<action type="java">` | `spark_jar_task` with `main_class_name` |
+| `<action type="sub-workflow">` | `notebook_task` placeholder (app-path annotated for manual wiring) |
+| `<action type="pig/sqoop/fs/email/…">` | `notebook_task` stub at `/Migrations/<type>/<name>` |
+| `<fork>` / `<join>` | Parallel tasks via `depends_on` fan-out / fan-in |
+| `<decision>` | Placeholder `notebook_task` with all branches preserved in `base_parameters` |
+| `<kill>` | Recorded in `_migration_notes` annotation (no Jobs API equivalent) |
+| `<start to="…">` | Start task sorted first in the task list |
+| `<global><configuration>` | Merged into `base_parameters` of every task |
+| Action-level `<configuration>` | Merged into that task's `base_parameters` |
+| `retry-max` / `retry-interval` | `max_retries` / `min_retry_interval_millis` |
+| `<file>` / `<archive>` | `_distributed_files` annotation (no Jobs API equivalent) |
+
+**Cluster handling:**
+- **2+ tasks** → shared `job_clusters` entry (`job_cluster_key: "default_cluster"` on each task)
+- **1 task** → `new_cluster` inlined in the task (Databricks rejects shared clusters on single-task jobs)
+- Default cluster: `spark_version: 14.3.x-scala2.12`, `Standard_DS3_v2`, 2 workers
+
+**DAG resolution (`run_if` mapping):**
+
+| Oozie edge | `run_if` value |
+|---|---|
+| `<ok to="…">` only | `ALL_SUCCESS` |
+| `<error to="…">` only | `AT_LEAST_ONE_FAILED` |
+| Both types into same task | `ALL_DONE` |
+
+Fork/join pseudo-nodes are resolved transparently — the DAG resolver walks through them and wires the real action tasks directly as `depends_on` entries.
+
+**Migration annotations** (keys prefixed `_`, stripped before the JSON is written or sent to the API):
+
+| Key | Content |
+|---|---|
+| `_migration_notes` | Fork/join, decision, kill, global-config notes |
+| `_sub_workflow_note` | Sub-workflow app-path for manual wiring |
+| `_decision_note` | Branch conditions and routing guidance |
+| `_distributed_files` | File/archive staging (manual replacement needed) |
+
+---
+
+#### Coordinator Conversion
+
+A `coordinator.xml` converts to a **separate Databricks job** with a Quartz cron schedule. The coordinator job does not merge the workflow into itself — the two remain independent jobs.
+
+**Frequency → Quartz cron mapping:**
+
+| Oozie Frequency | Quartz Cron |
+|---|---|
+| `${coord:minutes(N)}` where N < 60 | `0 0/N * * * ?` |
+| `${coord:hours(1)}` | `0 0 * * * ?` |
+| `${coord:hours(N)}` | `0 0 0/N * * ?` |
+| `${coord:days(1)}` | `0 0 0 * * ?` |
+| `${coord:days(N)}` | `0 0 0 1/N * ?` |
+| `${coord:months(1)}` | `0 0 0 1 * ?` |
+| `${coord:months(N)}` | `0 0 0 1 1/N ?` |
+| `60` (minutes) | `0 0 * * * ?` |
+| `1440` (minutes) | `0 0 0 * * ?` |
+| `10080` (minutes) | `0 0 0 ? * MON` |
+| Unrecognised | `0 0 0 * * ?` (default) + warning |
+
+Every coordinator JSON includes a `coordinator_info` block with the original Oozie metadata:
+```json
+"coordinator_info": {
+  "frequency": "${coord:days(1)}",
+  "start": "2024-01-01T00:00Z",
+  "end": "2024-01-10T00:00Z",
+  "timezone": "UTC",
+  "workflow_app_path": "/apps/wf-sales",
+  "quartz_cron_expression": "0 0 0 * * ?"
+}
+```
+
+---
+
+#### Coordinator + Workflow Linking
+
+When a coordinator XML and one or more workflow XMLs are uploaded together, SyrenBridge links them automatically using the `<app-path>` value inside the coordinator's `<action><workflow>` element.
+
+**Conversion order (important):**
+1. All workflow XMLs are converted first → independent Databricks jobs
+2. Each coordinator is matched to a workflow by comparing the `<app-path>` basename to workflow names
+3. Matched coordinator → `run_job_task` pointing to the workflow job
+4. Unmatched coordinator → notebook placeholder task + `migration_warnings` field
+
+**Matching algorithm** (first match wins):
+
+| Priority | Rule | Example |
+|---|---|---|
+| 1 | Workflow `name` attribute == app-path basename (exact) | `name="wf-sales"`, path `.../wf-sales` |
+| 2 | Workflow filename stem == app-path basename (exact) | file `wf-sales.xml`, path `.../wf-sales` |
+| 3a | Normalised workflow name == normalised basename | `name="wf_sales"`, path `.../wf-sales` ← **hyphen↔underscore** |
+| 3b | Normalised filename stem == normalised basename | file `wf_sales.xml`, path `.../wf-sales` |
+
+*Normalisation:* lowercase + collapse `-` and `_` to `_`. Covers the common Oozie convention where HDFS paths use hyphens and XML `name=` attributes use underscores.
+
+**Linked coordinator output (workflow was matched):**
+```json
+{
+  "name": "coord-daily",
+  "tasks": [
+    {
+      "task_key": "run_wf_sales",
+      "run_if": "ALL_SUCCESS",
+      "depends_on": [],
+      "run_job_task": { "job_id": "{{job_id:wf_sales}}" }
+    }
+  ],
+  "schedule": { "quartz_cron_expression": "0 0 0 * * ?", "timezone_id": "UTC", "pause_status": "PAUSED" },
+  "coordinator_info": { ... }
+}
+```
+
+`"{{job_id:wf_sales}}"` is a sentinel placeholder. The UI replaces it automatically with the real integer job_id as soon as the workflow job is created in Databricks.
+
+**Unmatched coordinator output (no workflow XML supplied):**
+```json
+{
+  "name": "coord-daily",
+  "tasks": [
+    {
+      "task_key": "run_daily_flow",
+      "notebook_task": { "notebook_path": "/apps/daily_flow", "source": "WORKSPACE" },
+      "new_cluster": { ... }
+    }
+  ],
+  "migration_warnings": [
+    "No workflow XML supplied for coordinator 'coord-daily'. A placeholder task pointing to '/apps/daily_flow' was inserted. Replace it with the actual migrated notebook path."
+  ],
+  "schedule": { ... },
+  "coordinator_info": { ... }
+}
+```
+
+**Recommended deploy order:**
+1. Upload workflow XML + coordinator XML together
+2. Convert → one JSON per job is written to the output folder
+3. **Create workflow job first** → Databricks returns a real `job_id`
+4. UI automatically patches the coordinator JSON: `"{{job_id:wf_sales}}"` → real integer
+5. Create coordinator job — it now references the correct workflow job
+
+---
+
+#### What Is Not Converted
+
+| Oozie Feature | Handling | Notes |
+|---|---|---|
+| EL expressions `${...}` | Preserved verbatim | No Databricks equivalent — replace manually |
+| Dataset-based scheduling | Skipped | Oozie input/output datasets have no Jobs API equivalent |
+| SLA configurations | Skipped silently | No Jobs API equivalent |
+| Coordinator `end-time` | `coordinator_info` only | Databricks jobs have no end-date concept |
+| `<file>` / `<archive>` distributions | Annotation only | No HDFS staging in Databricks — wire via `init_scripts` or libraries |
+| Decision branch routing | All branches kept | Jobs API has no data-driven conditional routing |
+| Kill node messages | `_migration_notes` annotation | Add failure email/webhook notifications manually |
+| Sub-workflow nesting | Placeholder notebook task | Migrate referenced workflows separately, then update `notebook_path` |
+| Hive `<job-xml>` config | Ignored | Hive engine config not applicable in Databricks |
+| Multiple `<app-path>` in one coordinator | First path only | Oozie coordinators are designed to trigger one workflow |
 
 ---
 
@@ -476,12 +636,20 @@ Supported Hive types: `INT`, `BIGINT`, `SMALLINT`, `TINYINT`, `FLOAT`, `DOUBLE`,
 ### `oozie_converter.py`
 
 | Function | Signature | Description |
-|----------|-----------|-------------|
-| `parse_workflow` | `(xml_str: str) -> List[OozieAction]` | Parse Oozie workflow XML into a list of `OozieAction` dataclasses |
-| `to_databricks_job` | `(actions, job_name) -> Dict` | Convert actions to a Databricks Jobs API 2.1 payload with dependency graph |
-| `workflow_to_json` | `(xml_str, job_name) -> str` | End-to-end: parse XML and return formatted JSON string |
+|---|---|---|
+| `parse_workflow` | `(xml_str) -> WorkflowGraph` | Parse workflow XML into a `WorkflowGraph` (actions, forks, joins, decisions, kills, start node, global config) |
+| `parse_coordinator` | `(xml_str) -> CoordinatorSchedule` | Parse coordinator XML into a `CoordinatorSchedule` (name, frequency, start, end, timezone, app-path, quartz cron) |
+| `parse_bundle` | `(xml_str) -> List[BundleEntry]` | Parse bundle XML into coordinator app-path references |
+| `workflow_to_dict` | `(xml_str, job_name) -> Dict` | Convert workflow XML to a Databricks Jobs API 2.1 dict (with `_`-prefixed annotation keys) |
+| `workflow_to_json` | `(xml_str, job_name) -> str` | `workflow_to_dict` + strip annotations + `json.dumps` |
+| `coordinator_to_dict` | `(coord_xml, workflow_xml?) -> (Dict, List[str])` | Convert coordinator XML to a scheduled job dict; optionally merge a workflow XML; returns `(payload, warnings)` |
+| `bundle_to_dicts` | `(bundle_xml, coordinator_xmls?) -> List[Tuple]` | Convert bundle XML to a list of `(name, payload, warnings)` tuples |
+| `convert_oozie_file_set` | `(files: Dict[str,str]) -> Dict` | **Main multi-file entry point**: categorise XMLs, convert workflows first, match coordinators to workflows, return `{jobs, workflow_job_map, links, warnings}` |
+| `_match_coordinator_to_workflow` | `(app_path, workflow_files) -> str\|None` | Match coordinator `<app-path>` to an uploaded workflow by basename (exact then hyphen↔underscore normalised) |
+| `_strip_annotation_keys` | `(obj) -> obj` | Recursively remove `_`-prefixed keys from dicts before serialisation |
+| `convert_xml` | `(xml_str) -> str` | Dispatch helper: routes to `workflow_to_json` or `coordinator_to_dict` based on root element |
 
-`OozieAction` fields: `name`, `action_type`, `ok_to`, `error_to`, `config`.
+**Key dataclasses:** `WorkflowGraph`, `OozieAction`, `OozieFork`, `OozieJoin`, `OozieDecision`, `OozieKill`, `CoordinatorSchedule`, `BundleEntry`.
 
 ### `pyspark_migrator.py`
 
@@ -518,8 +686,8 @@ files/
 │   ├── pyspark-cast-column.py      # Column casting patterns
 │   └── pyspark-collect.py          # .collect() anti-pattern example
 ├── sample_oozie/
-│   └── workflow.xml                # 4-action retail ETL pipeline
-│                                   # (hive → hive → spark → shell)
+│   └── workflow.xml                # 4-action retail ETL pipeline (hive → hive → spark → shell)
+│                                   # Upload alone (standalone) or with a coordinator.xml to test linking
 └── sample_hdfs/
     └── hdfs_listing.txt            # Sample hdfs -ls -R output (12 entries)
 ```

@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+from urllib import response
 import zipfile
 from pathlib import Path
 
@@ -24,7 +25,8 @@ import streamlit as st
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from modules.oozie_converter import workflow_to_json, parse_workflow
+from modules.oozie_converter import workflow_to_json, parse_workflow, coordinator_to_dict, parse_coordinator,convert_xml, convert_oozie_file_set, _strip_annotation_keys
+
 from modules.databricks_service import DatabricksClient, get_databricks_credentials
 from modules.sql_transpiler import run_hive_transpiler
 from modules.llm_converter import LLMConverter, load_prompt
@@ -665,13 +667,39 @@ def render_oozie_workflow_create_section(tp_out_dir: str, key_suffix: str) -> No
                     return
 
                 job_payload = json.loads(selected_file.read_text(encoding="utf-8"))
+                # ==============================
+                # SHOW PAYLOAD
+                # ==============================
+                st.subheader("🚨 Job Payload Sent to Databricks")
+                # st.json(job_payload)
                 dbx = DatabricksClient.from_app_context()
                 response = dbx.create_job(job_payload)
+                st.subheader("📡 Databricks API Response")
+                # st.json(response)
 
                 if "job_id" in response:
                     job_id = response["job_id"]
                     st.success(f"Workflow created. Job ID: {job_id}")
                     st.markdown(f"[Open Job]({dbx.workspace_url}/#job/{job_id})")
+
+                    # Replace sentinel "{{job_id:<name>}}" in coordinator JSONs
+                    wf_name = job_payload.get("name", "")
+                    sentinel = f'"{{{{job_id:{wf_name}}}}}"'
+                    patched = []
+                    for other_file in json_files:
+                        if other_file == selected_file:
+                            continue
+                        raw = other_file.read_text(encoding="utf-8")
+                        if sentinel in raw:
+                            other_file.write_text(
+                                raw.replace(sentinel, str(job_id)), encoding="utf-8"
+                            )
+                            patched.append(other_file.name)
+                    if patched:
+                        st.info(
+                            f"Updated coordinator job(s) with real job_id {job_id}: "
+                            + ", ".join(patched)
+                        )
                     return
 
                 st.error(f"Failed to create workflow: {response.get('error', 'Unknown error')}")
@@ -702,20 +730,26 @@ def render_transpile_output_section() -> None:
     st.markdown("<hr class='section-sep'>", unsafe_allow_html=True)
 
     if info.get("is_oozie"):
-        st.markdown(
-            '<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;'
-            'padding:0.75rem 1rem;margin-bottom:1rem;font-size:0.87rem;color:#92400e;">'
-            '⚠️ <strong>Oozie Limitations to review in the generated JSON:</strong>'
-            '<ul style="margin:0.4rem 0 0 1rem;padding:0;line-height:1.8;">'
-            '<li><strong>Fork/Join not supported</strong> — parallel branches (<code>&lt;fork&gt;</code>/<code>&lt;join&gt;</code>) '
-            'are silently skipped. Review your workflow XML for these nodes and add the parallel tasks manually in the Databricks Workflow editor.</li>'
-            '<li><strong>EL expressions</strong> (<code>${variable}</code>) are preserved as-is — replace them with Databricks job parameters or widget values.</li>'
-            '<li><strong>Coordinator &amp; Bundle</strong> schedules are not converted — recreate them as Databricks Job schedules (cron or trigger-based).</li>'
-            '<li>Placeholder values marked <code>&lt;replace: …&gt;</code> must be filled in before deploying the job.</li>'
-            '</ul>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
+        oozie_links = info.get("oozie_links", [])
+        if oozie_links:
+            st.markdown("**🔗 Coordinator → Workflow Links**")
+            for lk in oozie_links:
+                if lk["workflow"]:
+                    st.success(f"{lk['coordinator']} → linked to **{lk['workflow']}** via `run_job_task`")
+                else:
+                    st.warning(f"{lk['coordinator']} → no workflow matched — add `run_job_task` manually")
+        st.markdown("⚠️ **Oozie Conversion Notes**")
+        with st.expander("ℹ️ View details"):
+            st.markdown("""
+        - **Workflow jobs** are created as independent Databricks jobs with a full task graph.
+        - **Coordinator jobs** trigger workflow jobs via `run_job_task`. If a matching workflow XML was uploaded, the `job_id` sentinel (`{{job_id:<name>}}`) is **automatically replaced** with the real Databricks job ID once you create the workflow job — create workflow jobs first, then coordinator jobs.
+        - **Schedule** is set to `PAUSED` by default — activate after verifying the job in the Databricks Workflow editor.
+        - **EL expressions** (`${variable}`) are preserved as-is — replace them with Databricks job parameters or widgets.
+        - **Bundle workflows** are not supported — convert each coordinator individually.
+        - **Parallel execution (fork/join)** may require manual validation to ensure correct task dependencies.
+        - **Error handling** logic is simplified — validate failure paths and retry behavior.
+        - **Cluster config** is not automatically optimized — review node type, Spark version, and worker count.
+        """)
         render_oozie_workflow_create_section(tp_out_dir, "main")
 
     st.markdown("""
@@ -734,41 +768,7 @@ def render_transpile_output_section() -> None:
             info.get("llm_statements_replaced", 0)
         )
     )
-    # mc1, mc2, mc3 = st.columns(3)
-    # with mc1:
-    #     st.markdown(f"""
-    #     <div class="metric-card">
-    #         <div class="metric-icon">📁</div>
-    #         <div class="metric-val">{n_src}</div>
-    #         <div class="metric-lbl">Files Processed</div>
-    #     </div>""", unsafe_allow_html=True)
-    # with mc2:
-    #     st.markdown(f"""
-    #     <div class="metric-card">
-    #         <div class="metric-icon">✅</div>
-    #         <div class="metric-val">{n_out}</div>
-    #         <div class="metric-lbl">Files Generated</div>
-    #     </div>""", unsafe_allow_html=True)
-    # with mc3:
-    #     st.markdown(f"""
-    #     <div class="metric-card">
-    #         <div class="metric-icon">⚡</div>
-    #         <div class="metric-val">{elapsed:.1f}s</div>
-    #         <div class="metric-lbl">Time Taken</div>
-    #     </div>""", unsafe_allow_html=True)
-
-    # if info.get("llm_files_sent", 0):
-    #     llm_metric_col, _, _ = st.columns([1, 2, 2])
-    #     with llm_metric_col:
-    #         st.markdown(f"""
-    #         <div class="metric-card">
-    #             <div class="metric-icon">LLM</div>
-    #             <div class="metric-val">{info.get("llm_statements_replaced", 0)}</div>
-    #             <div class="metric-lbl">LLM Enhanced ({info.get("llm_files_sent", 0)} file{'s' if info.get("llm_files_sent", 0) != 1 else ''})</div>
-    #         </div>""", unsafe_allow_html=True)
-
-    # st.markdown("<div style='height:1.25rem'></div>", unsafe_allow_html=True)
-
+    
     zip_bytes = zip_directory(tp_out_dir)
     zip_name = f"transpiled_{dialect_cli}_{target_cli.lower()}.zip"
     dl_col, info_col = st.columns([1, 2])
@@ -1158,49 +1158,75 @@ def run_oozie_converter(
     src_dir: str,
     out_dir: str,
     err_file: str,
-) -> tuple[bool, str, str]:
+) -> tuple[bool, str, str, list]:
     """
-    Convert Oozie workflow.xml files to Databricks Jobs API 2.1 JSON.
-    Each .xml file in src_dir is parsed and written as a matching .json in out_dir.
+    Convert Oozie XML files to Databricks Jobs API 2.1 JSON.
+
+    Workflows become independent job JSONs.
+    Coordinators become scheduled jobs that trigger workflow jobs via run_job_task.
+    Files are linked automatically when a coordinator and workflow share the same
+    directory or when the coordinator app-path matches a workflow file.
+
+    Returns (ok, stdout, stderr, links) where links is a list of
+    {"coordinator": str, "workflow": str | None} dicts.
     """
     src_root = Path(src_dir)
     out_root = Path(out_dir)
 
-    errors: list[str] = []
-    processed = 0
+    # Read all XML files into a dict keyed by relative path
+    all_xmls: dict[str, str] = {}
+    for src_file in sorted(src_root.rglob("*.xml")):
+        if src_file.is_file():
+            rel = str(src_file.relative_to(src_root))
+            all_xmls[rel] = src_file.read_text(encoding="utf-8", errors="replace")
+
+    if not all_xmls:
+        return False, "Oozie converter: no XML files found.", "", []
+
+    results = convert_oozie_file_set(all_xmls)
+
+    errors: list[str] = list(results["warnings"])
     generated = 0
 
-    for src_file in sorted(src_root.rglob("*.xml")):
-        if not src_file.is_file():
-            continue
-        processed += 1
-        rel_path = src_file.relative_to(src_root)
-        try:
-            xml_str = src_file.read_text(encoding="utf-8", errors="replace")
-            job_name = src_file.stem  # filename without extension as job name
-            job_json = workflow_to_json(xml_str, job_name=job_name)
-        except Exception as exc:
-            errors.append(f"{rel_path}: conversion error — {exc}")
-            continue
-
-        out_file = out_root / rel_path.with_suffix(".json")
+    for job_name, job_dict in results["jobs"].items():
+        out_file = out_root / f"{job_name}.json"
         out_file.parent.mkdir(parents=True, exist_ok=True)
         try:
-            out_file.write_text(job_json, encoding="utf-8")
+            out_file.write_text(
+                json.dumps(job_dict, indent=2), encoding="utf-8"
+            )
             generated += 1
         except Exception as exc:
-            errors.append(f"{rel_path}: could not write output — {exc}")
+            errors.append(f"{job_name}: could not write output — {exc}")
 
     if errors:
         Path(err_file).write_text("\n".join(errors), encoding="utf-8")
 
-    stdout = (
-        f"Oozie converter: {processed} workflow(s) processed, "
-        f"{generated} Databricks Workflow JSON file(s) generated."
-        + (f"  {len(errors)} error(s) — see log." if errors else "")
-    )
+    wf_count   = len(results["workflow_job_map"])
+    co_count   = len(results["links"])
+    linked     = sum(1 for lk in results["links"] if lk["workflow"])
+    warn_count = len(errors)
+
+    lines = [
+        f"Oozie converter: {len(all_xmls)} file(s) read → "
+        f"{wf_count} workflow job(s), {co_count} coordinator job(s), "
+        f"{generated} JSON file(s) written.",
+    ]
+    if co_count:
+        lines.append(
+            f"  {linked}/{co_count} coordinator(s) auto-linked to a workflow via run_job_task."
+        )
+    if co_count - linked:
+        lines.append(
+            f"  {co_count - linked} coordinator(s) have no workflow match — "
+            "add run_job_task manually after creating the workflow job."
+        )
+    if warn_count:
+        lines.append(f"  {warn_count} warning(s) — see log below.")
+
+    stdout = "\n".join(lines)
     stderr = "\n".join(errors) if (errors and generated == 0) else ""
-    return generated > 0, stdout, stderr
+    return generated > 0, stdout, stderr, results["links"]
 
 
 def build_file_tree_html(directory: str) -> tuple[str, int, int]:
@@ -2388,11 +2414,17 @@ elif selected_page == "Transpiler":
                 t0 = time.time()
                 if dialect_info.get("oozie"):
                     # Built-in Oozie → Databricks Workflow JSON converter
-                    tp_ok, tp_stdout, tp_stderr = run_oozie_converter(
+                    tp_ok, tp_stdout, tp_stderr, _oozie_links = run_oozie_converter(
                         src_dir=tp_src_dir,
                         out_dir=tp_out_dir,
                         err_file=tp_err_file,
                     )
+                    st.session_state["tp_oozie_links"] = _oozie_links
+                    for lk in _oozie_links:
+                        if lk["workflow"]:
+                            st.write(f"✅ **{lk['coordinator']}** → linked to **{lk['workflow']}** via `run_job_task`")
+                        else:
+                            st.write(f"⚠️ **{lk['coordinator']}** → no workflow matched — add `run_job_task` manually")
                 elif dialect_info.get("custom"):
                     # Custom in-process transpiler (HiveSQL via sqlglot → Databricks SQL)
                     # Get LLM credentials from environment or session state
@@ -2448,6 +2480,7 @@ elif selected_page == "Transpiler":
                 "selected_dialect_name": selected_dialect_name,
                 "selected_target_label": selected_target_label,
                 "is_oozie": bool(dialect_info.get("oozie")),
+                "oozie_links": st.session_state.get("tp_oozie_links", []),
                 "llm_files_sent": llm_counts[0],
                 "llm_statements_replaced": llm_counts[1],
                 "llm_failures": llm_counts[2],
@@ -2475,23 +2508,26 @@ elif selected_page == "Transpiler":
 
                 # Oozie-specific notes shown with results
                 if dialect_info.get("oozie"):
-                    st.markdown(
-                        '<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;'
-                        'padding:0.75rem 1rem;margin-bottom:1rem;font-size:0.87rem;color:#92400e;">'
-                        '⚠️ <strong>Oozie Limitations to review in the generated JSON:</strong>'
-                        '<ul style="margin:0.4rem 0 0 1rem;padding:0;line-height:1.8;">'
-                        '<li><strong>Fork/Join not supported</strong> — parallel branches (<code>&lt;fork&gt;</code>/<code>&lt;join&gt;</code>) '
-                        'are silently skipped. Review your workflow XML for these nodes and add the parallel tasks manually in the Databricks Workflow editor.</li>'
-                        '<li><strong>EL expressions</strong> (<code>${variable}</code>) are preserved as-is — replace them with Databricks job parameters or widget values.</li>'
-                        '<li><strong>Coordinator &amp; Bundle</strong> schedules are not converted — recreate them as Databricks Job schedules (cron or trigger-based).</li>'
-                        '<li>Placeholder values marked <code>&lt;replace: …&gt;</code> must be filled in before deploying the job.</li>'
-                        '<li>Cluster configuration values must be updated after deploying the job based on size of the data.</li>'
-                        '<li>Notebook paths should be updated,after deploying the job current paths are based on oozie workflow.</li>'
-                        '</ul>'
-                        '</div>',
-                        unsafe_allow_html=True,
-                    )
-
+                    oozie_links = st.session_state.get("tp_oozie_links", [])
+                    if oozie_links:
+                        st.markdown("**🔗 Coordinator → Workflow Links**")
+                        for lk in oozie_links:
+                            if lk["workflow"]:
+                                st.success(f"{lk['coordinator']} → linked to **{lk['workflow']}** via `run_job_task`")
+                            else:
+                                st.warning(f"{lk['coordinator']} → no workflow matched — add `run_job_task` manually")
+                    st.markdown("⚠️ **Oozie Conversion Notes**")
+                    with st.expander("ℹ️ View details"):
+                        st.markdown("""
+                    - **Workflow jobs** are created as independent Databricks jobs with a full task graph.
+                    - **Coordinator jobs** trigger workflow jobs via `run_job_task`. If a matching workflow XML was uploaded, the `job_id` sentinel (`{{job_id:<name>}}`) is **automatically replaced** with the real Databricks job ID once you create the workflow job — create workflow jobs first, then coordinator jobs.
+                    - **Schedule** is set to `PAUSED` by default — activate after verifying the job in the Databricks Workflow editor.
+                    - **EL expressions** (`${variable}`) are preserved as-is — replace them with Databricks job parameters or widgets.
+                    - **Bundle workflows** are not supported — convert each coordinator individually.
+                    - **Parallel execution (fork/join)** may require manual validation to ensure correct task dependencies.
+                    - **Error handling** logic is simplified — validate failure paths and retry behavior.
+                    - **Cluster config** is not automatically optimized — review node type, Spark version, and worker count.
+                    """)
                     render_oozie_workflow_create_section(tp_out_dir, "main")
 
                 st.markdown("""

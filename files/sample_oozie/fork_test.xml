@@ -1,0 +1,34 @@
+<workflow-app name="fork-test" xmlns="uri:oozie:workflow:0.5">
+    <start to="fork-node"/>
+
+    <fork name="fork-node">
+        <path start="task1"/>
+        <path start="task2"/>
+    </fork>
+
+    <action name="task1">
+        <shell xmlns="uri:oozie:shell-action:0.2">
+            <exec>sleep</exec>
+            <argument>5</argument>
+        </shell>
+        <ok to="join-node"/>
+        <error to="fail"/>
+    </action>
+
+    <action name="task2">
+        <shell xmlns="uri:oozie:shell-action:0.2">
+            <exec>sleep</exec>
+            <argument>3</argument>
+        </shell>
+        <ok to="join-node"/>
+        <error to="fail"/>
+    </action>
+
+    <join name="join-node" to="end"/>
+
+    <kill name="fail">
+        <message>Fork failed</message>
+    </kill>
+
+    <end name="end"/>
+</workflow-app>

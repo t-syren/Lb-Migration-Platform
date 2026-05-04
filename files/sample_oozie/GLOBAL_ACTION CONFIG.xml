@@ -1,0 +1,30 @@
+<workflow-app xmlns="uri:oozie:workflow:0.5" name="test-config">
+
+  <global>
+    <configuration>
+      <property>
+        <name>env</name>
+        <value>prod</value>
+      </property>
+    </configuration>
+  </global>
+
+  <start to="task1"/>
+
+  <action name="task1">
+    <shell xmlns="uri:oozie:shell-action:0.2">
+      <exec>a.sh</exec>
+      <configuration>
+        <property>
+          <name>env</name>
+          <value>dev</value>
+        </property>
+      </configuration>
+    </shell>
+    <ok to="end"/>
+    <error to="fail"/>
+  </action>
+
+  <kill name="fail"><message>fail</message></kill>
+  <end name="end"/>
+</workflow-app>

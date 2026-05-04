@@ -1,0 +1,10 @@
+<coordinator-app name="coord-timezone" frequency="${coord:hours(2)}"
+    start="2024-01-01T00:00Z" end="2024-01-02T00:00Z" timezone="Asia/Kolkata"
+    xmlns="uri:oozie:coordinator:0.4">
+
+    <action>
+        <workflow>
+            <app-path>/workflows/tz_flow</app-path>
+        </workflow>
+    </action>
+</coordinator-app>

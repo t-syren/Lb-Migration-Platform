@@ -1,0 +1,22 @@
+<workflow-app xmlns="uri:oozie:workflow:0.5" name="test-error">
+  <start to="task1"/>
+
+  <action name="task1">
+    <shell xmlns="uri:oozie:shell-action:0.2">
+      <exec>a.sh</exec>
+    </shell>
+    <ok to="end"/>
+    <error to="task2"/>
+  </action>
+
+  <action name="task2">
+    <shell xmlns="uri:oozie:shell-action:0.2">
+      <exec>b.sh</exec>
+    </shell>
+    <ok to="end"/>
+    <error to="fail"/>
+  </action>
+
+  <kill name="fail"><message>fail</message></kill>
+  <end name="end"/>
+</workflow-app>
