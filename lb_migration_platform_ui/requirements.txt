@@ -9,3 +9,6 @@ lxml>=5.0.0
 libcst>=1.1.0
 pyyaml>=6.0.0
 requests>=2.0.0
+faker>=24.0.0
+pytest>=8.0.0
+pytest-mock>=3.12.0

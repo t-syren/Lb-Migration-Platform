@@ -1,0 +1,53 @@
+{
+  "version": "v1",
+  "host": "https://adb-204242957656703.3.azuredatabricks.net",
+  "remote_path": "/Workspace/Users/chaturvedi.t@syrencloud.com/lb-test",
+  "last_modified_times": {
+    "app.py": "2026-05-05T17:46:46.784698734+05:30",
+    "app.yaml": "2026-05-05T23:50:47.767306378+05:30",
+    "modules/__init__.py": "2026-04-14T16:24:12.829997328+05:30",
+    "modules/databricks_service.py": "2026-04-30T11:36:21.010640597+05:30",
+    "modules/dummy_data.py": "2026-04-14T16:46:03.068338386+05:30",
+    "modules/hdfs_migrator.py": "2026-04-14T17:05:47.188569348+05:30",
+    "modules/llm_converter.py": "2026-04-30T11:36:21.010978268+05:30",
+    "modules/oozie_converter.py": "2026-05-05T17:46:46.786517416+05:30",
+    "modules/prompts/__init__.py": "2026-04-30T11:36:21.011563452+05:30",
+    "modules/prompts/hivesql.yml": "2026-04-30T11:36:21.012062936+05:30",
+    "modules/pyspark_migrator.py": "2026-04-14T17:00:30.364229331+05:30",
+    "modules/sql_transpiler.py": "2026-04-30T11:36:21.012569255+05:30",
+    "modules/sql_validator.py": "2026-04-14T16:50:03.017719642+05:30",
+    "requirements.txt": "2026-05-05T23:51:37.890921333+05:30"
+  },
+  "local_to_remote_names": {
+    "app.py": "app.py",
+    "app.yaml": "app.yaml",
+    "modules/__init__.py": "modules/__init__.py",
+    "modules/databricks_service.py": "modules/databricks_service.py",
+    "modules/dummy_data.py": "modules/dummy_data.py",
+    "modules/hdfs_migrator.py": "modules/hdfs_migrator.py",
+    "modules/llm_converter.py": "modules/llm_converter.py",
+    "modules/oozie_converter.py": "modules/oozie_converter.py",
+    "modules/prompts/__init__.py": "modules/prompts/__init__.py",
+    "modules/prompts/hivesql.yml": "modules/prompts/hivesql.yml",
+    "modules/pyspark_migrator.py": "modules/pyspark_migrator.py",
+    "modules/sql_transpiler.py": "modules/sql_transpiler.py",
+    "modules/sql_validator.py": "modules/sql_validator.py",
+    "requirements.txt": "requirements.txt"
+  },
+  "remote_to_local_names": {
+    "app.py": "app.py",
+    "app.yaml": "app.yaml",
+    "modules/__init__.py": "modules/__init__.py",
+    "modules/databricks_service.py": "modules/databricks_service.py",
+    "modules/dummy_data.py": "modules/dummy_data.py",
+    "modules/hdfs_migrator.py": "modules/hdfs_migrator.py",
+    "modules/llm_converter.py": "modules/llm_converter.py",
+    "modules/oozie_converter.py": "modules/oozie_converter.py",
+    "modules/prompts/__init__.py": "modules/prompts/__init__.py",
+    "modules/prompts/hivesql.yml": "modules/prompts/hivesql.yml",
+    "modules/pyspark_migrator.py": "modules/pyspark_migrator.py",
+    "modules/sql_transpiler.py": "modules/sql_transpiler.py",
+    "modules/sql_validator.py": "modules/sql_validator.py",
+    "requirements.txt": "requirements.txt"
+  }
+}
