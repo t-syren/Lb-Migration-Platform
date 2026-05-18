@@ -26,6 +26,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from modules.oozie_converter import workflow_to_json, parse_workflow, coordinator_to_dict, parse_coordinator,convert_xml, convert_oozie_file_set, _strip_annotation_keys
+from modules.ssrs_converter import convert_ssrs_file_set as _convert_ssrs_file_set
 
 from modules.databricks_service import DatabricksClient, get_databricks_credentials
 from modules.sql_transpiler import run_hive_transpiler
@@ -1231,6 +1232,68 @@ def run_oozie_converter(
     return generated > 0, stdout, stderr, results["links"]
 
 
+def run_ssrs_converter(
+    src_dir: str,
+    out_dir: str,
+    err_file: str,
+) -> tuple[bool, str, str, dict]:
+    """
+    Convert SSRS .rdl/.rdlc/.rsd files to SQL notebooks and assessment JSON.
+
+    Returns (ok, stdout, stderr, ssrs_results) where ssrs_results is the
+    dict returned by _convert_ssrs_file_set.
+    """
+    src_root = Path(src_dir)
+    out_root = Path(out_dir)
+
+    all_rdls: dict[str, str] = {}
+    for ext in ("*.rdl", "*.rdlc", "*.rsd"):
+        for src_file in sorted(src_root.rglob(ext)):
+            if src_file.is_file():
+                rel = str(src_file.relative_to(src_root))
+                all_rdls[rel] = src_file.read_text(encoding="utf-8", errors="replace")
+
+    if not all_rdls:
+        return False, "SSRS converter: no .rdl/.rdlc/.rsd files found.", "", {}
+
+    results = _convert_ssrs_file_set(all_rdls)
+
+    errors: list[str] = list(results["warnings"])
+    generated = 0
+
+    for fname, content in results["notebooks"].items():
+        out_file = out_root / fname
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            out_file.write_text(content, encoding="utf-8")
+            generated += 1
+        except Exception as exc:
+            errors.append(f"{fname}: could not write — {exc}")
+
+    for fname, adict in results["assessments"].items():
+        out_file = out_root / fname
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            out_file.write_text(json.dumps(adict, indent=2), encoding="utf-8")
+            generated += 1
+        except Exception as exc:
+            errors.append(f"{fname}: could not write — {exc}")
+
+    if errors:
+        Path(err_file).write_text("\n".join(errors), encoding="utf-8")
+
+    n_rdl = len(all_rdls)
+    n_nb = len(results["notebooks"])
+    n_as = len(results["assessments"])
+    stdout = (
+        f"SSRS converter: {n_rdl} file(s) read → "
+        f"{n_nb} SQL notebook(s), {n_as} assessment JSON(s), "
+        f"{generated} total file(s) written."
+    )
+
+    return generated > 0, stdout, "\n".join(errors) if errors else "", results
+
+
 def build_file_tree_html(directory: str) -> tuple[str, int, int]:
     """Return an HTML file-tree string plus (n_files, n_bytes)."""
     root = Path(directory)
@@ -1352,7 +1415,7 @@ with st.sidebar:
                     text-transform:uppercase;margin-bottom:0.65rem;">Suite Capabilities</div>
         <div style="font-size:0.78rem;color:#475569;line-height:1.9;">
             🔍 &nbsp;36 analysis technologies<br>
-            ⚡ &nbsp;11 transpiler dialects<br>
+            ⚡ &nbsp;13 transpiler dialects<br>
             🗄️ &nbsp;Databricks SQL output<br>
             🔁 &nbsp;Oozie workflow conversion<br>
             ☁️ &nbsp;Runs on Databricks Apps
@@ -1453,21 +1516,23 @@ if selected_page == "Get Started":
     # ── Transpiler dialects table ─────────────────────────────────────────────
     st.markdown("""
     <div style="font-size:0.7rem;font-weight:700;color:#94a3b8;letter-spacing:0.1em;
-                text-transform:uppercase;margin-bottom:0.75rem;">Transpiler — 11 Supported Dialects</div>
+                text-transform:uppercase;margin-bottom:0.75rem;">Transpiler — 13 Supported Dialects</div>
     """, unsafe_allow_html=True)
 
     dialect_rows = [
-        ("DataStage",          "Databricks Labs Lakebridge",  "PySpark / SparkSQL",       ".dsx .xml .pjb"),
-        ("HiveSQL (Cloudera)", "sqlglot (Databricks dialect)", "Databricks SQL / PySpark", ".hql .hive .sql .ddl .dml"),
-        ("Informatica",        "Databricks Labs Lakebridge",  "PySpark / SparkSQL",       ".xml .session .wf .m .mplt .lkp"),
-        ("Informatica Cloud",  "Databricks Labs Lakebridge",  "PySpark / SparkSQL",       ".xml .json .session"),
-        ("MS SQL Server",      "Databricks Labs Lakebridge",  "PySpark / SparkSQL",       ".sql .ddl .dml .proc .view"),
-        ("Netezza",            "Databricks Labs Lakebridge",  "PySpark / SparkSQL",       ".sql .ddl .dml .nzb"),
-        ("Oracle",             "Databricks Labs Lakebridge",  "PySpark / SparkSQL",       ".sql .ddl .dml .pls .prc .vw"),
-        ("Snowflake",          "Databricks Labs Lakebridge",  "PySpark / SparkSQL",       ".sql .ddl .dml"),
-        ("Synapse",            "Databricks Labs Lakebridge",  "PySpark / SparkSQL",       ".sql .ddl .dml .json"),
-        ("Teradata",           "Databricks Labs Lakebridge",  "PySpark / SparkSQL",       ".sql .bteq .tdl .tpt .ddl .dml"),
-        ("Oozie (Workflow)",   "lxml (built-in parser)",      "Databricks Jobs JSON",     ".xml"),
+        ("DataStage",          "Databricks Labs Lakebridge",   "PySpark / SparkSQL",          ".dsx .xml .pjb"),
+        ("HiveSQL (Cloudera)", "sqlglot (Databricks dialect)", "Databricks SQL / PySpark",    ".hql .hive .sql .ddl .dml"),
+        ("Informatica",        "Databricks Labs Lakebridge",   "PySpark / SparkSQL",          ".xml .session .wf .m .mplt .lkp"),
+        ("Informatica Cloud",  "Databricks Labs Lakebridge",   "PySpark / SparkSQL",          ".xml .json .session"),
+        ("MS SQL Server",      "Databricks Labs Lakebridge",   "PySpark / SparkSQL",          ".sql .ddl .dml .proc .view"),
+        ("Netezza",            "Databricks Labs Lakebridge",   "PySpark / SparkSQL",          ".sql .ddl .dml .nzb"),
+        ("Oracle",             "Databricks Labs Lakebridge",   "PySpark / SparkSQL",          ".sql .ddl .dml .pls .prc .vw"),
+        ("Snowflake",          "Databricks Labs Lakebridge",   "PySpark / SparkSQL",          ".sql .ddl .dml"),
+        ("SSIS",               "BladeBridge (Lakebridge)",     "SparkSQL",                    ".dtsx .xml"),
+        ("SSRS (Reports)",     "Built-in ssrs_converter",      "SQL Notebooks + JSON",        ".rdl .rdlc .rsd"),
+        ("Synapse",            "Databricks Labs Lakebridge",   "PySpark / SparkSQL",          ".sql .ddl .dml .json"),
+        ("Teradata",           "Databricks Labs Lakebridge",   "PySpark / SparkSQL",          ".sql .bteq .tdl .tpt .ddl .dml"),
+        ("Oozie (Workflow)",   "lxml (built-in parser)",       "Databricks Jobs JSON",        ".xml"),
     ]
 
     gs_table_rows = ""
@@ -2461,6 +2526,25 @@ elif selected_page == "Transpiler":
                             st.write(f"✅ **{lk['coordinator']}** → linked to **{lk['workflow']}** via `run_job_task`")
                         else:
                             st.write(f"⚠️ **{lk['coordinator']}** → no workflow matched — add `run_job_task` manually")
+                elif dialect_info.get("ssrs"):
+                    # Built-in SSRS → SQL Notebooks + Assessment JSON converter
+                    tp_ok, tp_stdout, tp_stderr, _ssrs_results = run_ssrs_converter(
+                        src_dir=tp_src_dir,
+                        out_dir=tp_out_dir,
+                        err_file=tp_err_file,
+                    )
+                    st.session_state["tp_ssrs_results"] = _ssrs_results
+                    n_nb = len(_ssrs_results.get("notebooks", {}))
+                    n_as = len(_ssrs_results.get("assessments", {}))
+                    auto_conv = sum(
+                        1 for a in _ssrs_results.get("assessments", {}).values()
+                        if a.get("auto_convertible")
+                    )
+                    st.write(
+                        f"📊 **{n_as}** report(s) assessed · "
+                        f"**{auto_conv}/{n_as}** auto-convertible · "
+                        f"**{n_nb}** SQL notebook(s) generated"
+                    )
                 elif dialect_info.get("custom"):
                     # Custom in-process transpiler (HiveSQL via sqlglot → Databricks SQL)
                     # Get LLM credentials from environment or session state
@@ -2517,6 +2601,8 @@ elif selected_page == "Transpiler":
                 "selected_target_label": selected_target_label,
                 "is_oozie": bool(dialect_info.get("oozie")),
                 "oozie_links": st.session_state.get("tp_oozie_links", []),
+                "is_ssrs": bool(dialect_info.get("ssrs")),
+                "ssrs_results": st.session_state.get("tp_ssrs_results", {}),
                 "llm_files_sent": llm_counts[0],
                 "llm_statements_replaced": llm_counts[1],
                 "llm_failures": llm_counts[2],
@@ -2542,7 +2628,7 @@ elif selected_page == "Transpiler":
             if n_out > 0:
                 st.markdown("<hr class='section-sep'>", unsafe_allow_html=True)
 
-                # Oozie-specific notes shown with results
+                # Dialect-specific notes shown with results
                 if dialect_info.get("oozie"):
                     oozie_links = st.session_state.get("tp_oozie_links", [])
                     if oozie_links:
@@ -2565,6 +2651,33 @@ elif selected_page == "Transpiler":
                     - **Cluster config** is not automatically optimized — review node type, Spark version, and worker count.
                     """)
                     render_oozie_workflow_create_section(tp_out_dir, "main")
+
+                elif dialect_info.get("ssrs"):
+                    ssrs_results = st.session_state.get("tp_ssrs_results", {})
+                    assessments = ssrs_results.get("assessments", {})
+                    notebooks = ssrs_results.get("notebooks", {})
+                    if assessments:
+                        n_auto = sum(1 for a in assessments.values() if a.get("auto_convertible"))
+                        st.markdown(
+                            f'<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;'
+                            f'padding:0.75rem 1rem;margin-bottom:0.75rem;font-size:0.88rem;color:#065f46;">'
+                            f'📊 <strong>{len(assessments)}</strong> report(s) assessed · '
+                            f'<strong>{n_auto}/{len(assessments)}</strong> auto-convertible · '
+                            f'<strong>{len(notebooks)}</strong> SQL notebook(s) generated</div>',
+                            unsafe_allow_html=True,
+                        )
+                    st.markdown("⚠️ **SSRS Conversion Notes**")
+                    with st.expander("ℹ️ View details"):
+                        st.markdown("""
+                    - **SQL Notebooks** (`.sql`) contain one SQL cell per dataset — run them directly on a Databricks SQL Warehouse.
+                    - **Assessment JSON** files list data sources, datasets, report items, parameters, and any VB.NET code blocks.
+                    - **Stored procedures** are commented out in the notebook — migrate the proc logic manually.
+                    - **T-SQL functions** (GETDATE, ISNULL, TOP N, etc.) are flagged in warnings — update to Spark SQL equivalents (`current_timestamp()`, `ifnull()`, `LIMIT n`).
+                    - **VB.NET code blocks** are preserved as comments — rewrite as Python UDFs or SQL expressions.
+                    - **Parameters** appear as `-- DECLARE` comments — replace with Databricks widgets (`dbutils.widgets`) or job parameters.
+                    - **Report layout** (visual formatting, charts) is not converted — use Databricks Dashboards or Lakeview SQL for visual output.
+                    - Use the **Download All Output Files** button below to get the ZIP, or upload directly to Databricks workspace.
+                    """)
 
                 st.markdown("""
                 <div class="results-header">
