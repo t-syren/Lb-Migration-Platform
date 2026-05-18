@@ -128,6 +128,8 @@ TRANSPILER_DIALECTS: dict[str, dict] = {
     "Netezza":             {"cli": "netezza",            "exts": ["sql", "ddl", "dml", "nzb"]},
     "Oracle":              {"cli": "oracle",             "exts": ["sql", "ddl", "dml", "pls", "pks", "pkb", "prc", "fnc", "vw", "trg"]},
     "Snowflake":           {"cli": "snowflake",          "exts": ["sql", "ddl", "dml"]},
+    "SSIS":                {"cli": "ssis",               "exts": ["dtsx", "xml"],              "sparksql_only": True},
+    "SSRS (Reports)":      {"cli": "ssrs",               "exts": ["rdl", "rdlc", "rsd"],       "ssrs": True},
     "Synapse":             {"cli": "synapse",            "exts": ["sql", "ddl", "dml", "json"]},
     "Teradata":            {"cli": "teradata",           "exts": ["sql", "bteq", "tdl", "tpt", "ddl", "dml"]},
     "Oozie (Workflow)":    {"cli": "oozie",              "exts": ["xml"],                               "oozie": True},
@@ -2117,11 +2119,23 @@ elif selected_page == "Transpiler":
                 'border:1px solid #fcd34d;border-radius:6px;padding:2px 7px;font-weight:600;">'
                 '🔁 Built-in engine (oozie_converter) — outputs Databricks Workflow JSON</span>'
             )
+        elif dialect_info.get("ssrs"):
+            _engine_badge = (
+                '<span style="font-size:0.72rem;background:#fef3c7;color:#92400e;'
+                'border:1px solid #fcd34d;border-radius:6px;padding:2px 7px;font-weight:600;">'
+                '📊 Built-in engine (ssrs_converter) — outputs SQL notebooks + assessment JSON</span>'
+            )
         elif dialect_info.get("custom"):
             _engine_badge = (
                 '<span style="font-size:0.72rem;background:#fef3c7;color:#92400e;'
                 'border:1px solid #fcd34d;border-radius:6px;padding:2px 7px;font-weight:600;">'
                 '⚙️ Built-in engine (sqlglot) — no Databricks CLI needed</span>'
+            )
+        elif dialect_info.get("sparksql_only"):
+            _engine_badge = (
+                '<span style="font-size:0.72rem;background:#e0f2fe;color:#0369a1;'
+                'border:1px solid #7dd3fc;border-radius:6px;padding:2px 7px;font-weight:600;">'
+                '⚡ BladeBridge — SparkSQL output only</span>'
             )
         else:
             _engine_badge = ""
@@ -2145,6 +2159,28 @@ elif selected_page == "Transpiler":
                 'padding:0.6rem 1rem;font-size:0.82rem;color:#065f46;font-weight:500;">'
                 '📋 Output: <strong>Databricks Workflow JSON</strong> — deployable via '
                 '<code>/api/2.1/jobs ,please use button below - Create Databricks Workflow</code></div>',
+                unsafe_allow_html=True,
+            )
+        elif dialect_info.get("ssrs"):
+            # SSRS custom engine outputs SQL notebooks + assessment JSON
+            target_cli = "SSRS_NOTEBOOKS"
+            selected_target_label = "SQL Notebooks + Assessment JSON"
+            st.markdown(
+                '<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;'
+                'padding:0.6rem 1rem;font-size:0.82rem;color:#065f46;font-weight:500;">'
+                '📊 Output: <strong>SQL Notebooks + Assessment JSON</strong> — '
+                'one .sql notebook and one assessment.json per report</div>',
+                unsafe_allow_html=True,
+            )
+        elif dialect_info.get("sparksql_only"):
+            # BladeBridge SSIS only supports SparkSQL — no target picker needed
+            target_cli = "SPARKSQL"
+            selected_target_label = "SparkSQL  (SQL-compatible Spark)"
+            st.markdown(
+                '<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;'
+                'padding:0.6rem 1rem;font-size:0.82rem;color:#065f46;font-weight:500;">'
+                '⚡ Output: <strong>SparkSQL</strong> — SSIS packages convert to SparkSQL only '
+                '(BladeBridge limitation)</div>',
                 unsafe_allow_html=True,
             )
         elif dialect_info.get("custom"):
@@ -2172,8 +2208,8 @@ elif selected_page == "Transpiler":
             )
             target_cli = TRANSPILER_TARGETS[selected_target_label]
 
-        # Optional settings (not applicable for Oozie)
-        if not dialect_info.get("oozie"):
+        # Optional settings (not applicable for Oozie, SSRS, or sparksql_only)
+        if not dialect_info.get("oozie") and not dialect_info.get("sparksql_only") and not dialect_info.get("ssrs"):
             with st.expander("⚙️ Advanced options", expanded=False):
                 catalog_name = st.text_input(
                     "Catalog name (optional)",
