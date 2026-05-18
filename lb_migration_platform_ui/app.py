@@ -2242,7 +2242,7 @@ elif selected_page == "Analyzer":
                 if report_ok:
                     status.update(label="✅ Analysis complete!", state="complete", expanded=False)
                 else:
-                    status.update(label="⚠️ Finished with issues — see log below", state="error", expanded=True)
+                    status.update(label="Finished with issues — see log below", state="error", expanded=True)
 
             if stdout:
                 with st.expander("Full analysis log"):
@@ -2872,9 +2872,9 @@ elif selected_page == "Transpiler":
                 if tp_ok and n_out > 0:
                     tp_status.update(label=f"✅ Transpilation complete! {n_out} output file(s)", state="complete", expanded=False)
                 elif n_out == 0:
-                    tp_status.update(label="⚠️ No output files generated — check log below", state="error", expanded=True)
+                    tp_status.update(label="No output files generated — check log below", state="error", expanded=True)
                 else:
-                    tp_status.update(label="⚠️ Completed with warnings — see log below", state="complete", expanded=False)
+                    tp_status.update(label="Completed with warnings — see log below", state="complete", expanded=False)
 
             st.session_state["tp_stdout"] = tp_stdout
             st.session_state["tp_stderr"] = tp_stderr
