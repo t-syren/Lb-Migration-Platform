@@ -1670,13 +1670,13 @@ if selected_page == "Get Started":
             <thead>
                 <tr style="background:rgba(255,255,255,0.05);border-bottom:1px solid rgba(255,255,255,0.08);">
                     <th style="padding:0.6rem 0.85rem;text-align:left;font-size:0.68rem;
-                               font-weight:700;letter-spacing:0.08em;color:#64748b;text-transform:uppercase;">Dialect</th>
+                               font-weight:700;letter-spacing:0.08em;color:#f1f5f9;text-transform:uppercase;">Dialect</th>
                     <th style="padding:0.6rem 0.85rem;text-align:left;font-size:0.68rem;
-                               font-weight:700;letter-spacing:0.08em;color:#64748b;text-transform:uppercase;">Engine</th>
+                               font-weight:700;letter-spacing:0.08em;color:#f1f5f9;text-transform:uppercase;">Engine</th>
                     <th style="padding:0.6rem 0.85rem;text-align:left;font-size:0.68rem;
-                               font-weight:700;letter-spacing:0.08em;color:#64748b;text-transform:uppercase;">Output</th>
+                               font-weight:700;letter-spacing:0.08em;color:#f1f5f9;text-transform:uppercase;">Output</th>
                     <th style="padding:0.6rem 0.85rem;text-align:left;font-size:0.68rem;
-                               font-weight:700;letter-spacing:0.08em;color:#64748b;text-transform:uppercase;">File Types</th>
+                               font-weight:700;letter-spacing:0.08em;color:#f1f5f9;text-transform:uppercase;">File Types</th>
                 </tr>
             </thead>
             <tbody>{gs_table_rows}</tbody>
@@ -1747,7 +1747,7 @@ if selected_page == "Get Started":
 elif selected_page == "Analyzer":
 
     st.markdown("""
-    <div style="color:#475569;font-size:0.92rem;max-width:680px;margin-bottom:1.5rem;">
+    <div style="color:#94a3b8;font-size:0.92rem;max-width:680px;margin-bottom:1.5rem;">
         Upload your source code, select the technology, and receive a
         <strong>migration-readiness report</strong> — covering object inventory, function usage,
         SQL category breakdown, and complexity scoring.
@@ -1783,8 +1783,8 @@ elif selected_page == "Analyzer":
 
         tags_html = "".join(f'<span class="ext-tag">.{e}</span>' for e in tech_exts)
         st.markdown(f"""
-        <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:1rem 1.25rem;margin-top:0.75rem;">
-            <div style="font-weight:700;color:#111827;font-size:1rem;margin-bottom:0.2rem;">
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:1rem 1.25rem;margin-top:0.75rem;">
+            <div style="font-weight:700;color:#f1f5f9;font-size:1rem;margin-bottom:0.2rem;">
                 {CATEGORY_ICON.get(tech_cat,'📦')} {tech_name}
             </div>
             <div style="font-size:0.78rem;color:#9ca3af;margin-bottom:0.6rem;">
@@ -1983,7 +1983,7 @@ elif selected_page == "Analyzer":
         # ==========================================================
         if not uploaded_files and not st.session_state.get("ws_selected_files"):
             st.markdown("""
-            <div style="background:#fafafa;border:2px dashed #e5e7eb;border-radius:12px;
+            <div style="background:rgba(255,255,255,0.03);border:2px dashed rgba(255,255,255,0.08);border-radius:12px;
                         padding:2rem;text-align:center;color:#9ca3af;">
                 <div style="font-size:2rem;">📂</div>
                 <div>No files selected yet</div>
@@ -2243,7 +2243,7 @@ elif selected_page == "Analyzer":
 elif selected_page == "Transpiler":
 
     st.markdown("""
-    <div style="color:#475569;font-size:0.92rem;max-width:720px;margin-bottom:1.5rem;">
+    <div style="color:#94a3b8;font-size:0.92rem;max-width:720px;margin-bottom:1.5rem;">
         Convert legacy SQL, ETL, and workflow code into <strong>Databricks-compatible output</strong>.
         Select your source dialect, upload files, and download the converted result.
     </div>
@@ -2264,8 +2264,8 @@ elif selected_page == "Transpiler":
 
     # ── PySpark / Serverless note ─────────────────────────────────────────────
     st.markdown(
-        '<div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;'
-        'padding:0.65rem 1rem;margin-bottom:1rem;font-size:0.83rem;color:#1e40af;">'
+        '<div style="background:rgba(99,102,241,0.08);border:1px solid #93c5fd;border-radius:8px;'
+        'padding:0.65rem 1rem;margin-bottom:1rem;font-size:0.83rem;color:#93c5fd;">'
         '💡 <strong>PySpark & Spark Classic → Serverless migration</strong> is available through '
         'the <strong>Syren Server to Serverless Migration Platform</strong>. '
         '<a href="https://syren-s2s-platform-204242957656703.3.azure.databricksapps.com/#home" '
@@ -2298,19 +2298,19 @@ elif selected_page == "Transpiler":
         dial_tags_sel = "".join(f'<span class="ext-tag teal">.{e}</span>' for e in dialect_exts)
         if dialect_info.get("oozie"):
             _engine_badge = (
-                '<span style="font-size:0.72rem;background:#fef3c7;color:#92400e;'
+                '<span style="font-size:0.72rem;background:rgba(251,191,36,0.08);color:#92400e;'
                 'border:1px solid #fcd34d;border-radius:6px;padding:2px 7px;font-weight:600;">'
                 '🔁 Built-in engine (oozie_converter) — outputs Databricks Workflow JSON</span>'
             )
         elif dialect_info.get("ssrs"):
             _engine_badge = (
-                '<span style="font-size:0.72rem;background:#fef3c7;color:#92400e;'
+                '<span style="font-size:0.72rem;background:rgba(251,191,36,0.08);color:#92400e;'
                 'border:1px solid #fcd34d;border-radius:6px;padding:2px 7px;font-weight:600;">'
                 '📊 Built-in engine (ssrs_converter) — outputs SQL notebooks + assessment JSON</span>'
             )
         elif dialect_info.get("custom"):
             _engine_badge = (
-                '<span style="font-size:0.72rem;background:#fef3c7;color:#92400e;'
+                '<span style="font-size:0.72rem;background:rgba(251,191,36,0.08);color:#92400e;'
                 'border:1px solid #fcd34d;border-radius:6px;padding:2px 7px;font-weight:600;">'
                 '⚙️ Built-in engine (sqlglot) — no Databricks CLI needed</span>'
             )
@@ -2323,9 +2323,9 @@ elif selected_page == "Transpiler":
         else:
             _engine_badge = ""
         st.markdown(f"""
-        <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;
                     padding:0.85rem 1.25rem;margin-top:0.5rem;margin-bottom:1rem;">
-            <div style="font-size:0.78rem;color:#6b7280;font-weight:600;margin-bottom:0.4rem;">
+            <div style="font-size:0.78rem;color:#94a3b8;font-weight:600;margin-bottom:0.4rem;">
                 ACCEPTED FILE TYPES
             </div>
             <div class="ext-wrap">{dial_tags_sel}</div>
@@ -2483,10 +2483,10 @@ elif selected_page == "Transpiler":
                 st.session_state["tp_source_mode"] = "upload"
             else:
                 st.markdown("""
-                <div style="background:#fafafa;border:2px dashed #e5e7eb;border-radius:12px;
+                <div style="background:rgba(255,255,255,0.03);border:2px dashed rgba(255,255,255,0.08);border-radius:12px;
                             padding:2rem 1.5rem;text-align:center;margin-top:0.5rem;color:#9ca3af;">
                     <div style="font-size:2rem;margin-bottom:0.5rem;">📂</div>
-                    <div style="font-weight:600;color:#6b7280;margin-bottom:0.25rem;">No files selected yet</div>
+                    <div style="font-weight:600;color:#94a3b8;margin-bottom:0.25rem;">No files selected yet</div>
                     <div style="font-size:0.82rem;">Upload source files to begin transpilation</div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -2920,7 +2920,7 @@ elif selected_page == "Settings":
 
     st.markdown("""
     <div style="max-width:680px;margin-bottom:1.5rem;">
-        <p style="color:#475569;font-size:0.92rem;line-height:1.65;margin:0;">
+        <p style="color:#94a3b8;font-size:0.92rem;line-height:1.65;margin:0;">
             SyrenBridge calls the Databricks CLI to run analysis and transpilation.
             Credentials are held in session memory only — never written to disk or shared between users.
         </p>
@@ -3063,8 +3063,8 @@ elif selected_page == "Settings":
         )
     else:
         st.markdown(
-            '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;'
-            'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#475569;">'
+            '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:8px;'
+            'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#94a3b8;">'
             'ℹ️ <strong>LLM credentials are optional.</strong> They are used for the LLM-powered '
             'transpiler (when enabled). If not provided, the standard transpiler will be used.<br><br>'
             '<strong>Supported providers:</strong> OpenAI, Azure OpenAI, Anthropic, Cohere, and other '
