@@ -1578,7 +1578,6 @@ if selected_page == "Home":
     st.markdown("""
     <div style="padding:3rem 0 2rem;">
 
-        <!-- Hero -->
         <div style="text-align:center;max-width:760px;margin:0 auto 3.5rem;">
             <div style="display:inline-block;background:rgba(255,54,33,0.1);border:1px solid rgba(255,54,33,0.25);
                         border-radius:999px;padding:5px 16px;font-size:12px;font-weight:600;
@@ -1609,7 +1608,6 @@ if selected_page == "Home":
             </div>
         </div>
 
-        <!-- Stats row -->
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:3rem;">
             <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
                         border-radius:14px;padding:1.75rem;text-align:center;backdrop-filter:blur(12px);">
@@ -1637,7 +1635,6 @@ if selected_page == "Home":
             </div>
         </div>
 
-        <!-- Feature cards -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:3rem;">
 
             <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
@@ -1727,7 +1724,6 @@ if selected_page == "Home":
 
         </div>
 
-        <!-- Footer note -->
         <div style="text-align:center;padding:1.5rem 0;border-top:1px solid rgba(255,255,255,0.06);">
             <div style="font-size:12px;color:#334155;">
                 Built by Syren Cloud &nbsp;&middot;&nbsp; Powered by Databricks Labs Lakebridge
