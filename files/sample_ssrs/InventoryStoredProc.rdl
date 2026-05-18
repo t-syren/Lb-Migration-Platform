@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sample SSRS Report: InventoryStoredProc
+  Scenario: Inventory status via a stored procedure.
+  Contains: 1 StoredProcedure dataset + custom VB.NET code.
+  auto_convertible = false — assessment JSON is generated, no SQL notebook.
+  Use this to test the SSRS transpiler's handling of non-convertible reports.
+-->
+<Report xmlns="http://schemas.microsoft.com/sqlserver/reporting/2010/01/reportdefinition">
+  <Name>InventoryStoredProc</Name>
+  <Description>Inventory Status Report — non-auto-convertible (stored proc + VB code)</Description>
+
+  <DataSources>
+    <DataSource Name="RetailDW">
+      <ConnectionProperties>
+        <DataProvider>SQL</DataProvider>
+        <ConnectString>Data Source=sql-dw-prod;Initial Catalog=RetailDW;Integrated Security=True</ConnectString>
+      </ConnectionProperties>
+    </DataSource>
+  </DataSources>
+
+  <!-- Custom VB.NET helper functions — flagged as manual migration required -->
+  <Code>
+    Function FormatStockLevel(qty As Integer) As String
+      If qty = 0 Then
+        Return "OUT OF STOCK"
+      ElseIf qty &lt; 10 Then
+        Return "LOW (" &amp; qty.ToString() &amp; ")"
+      Else
+        Return "OK (" &amp; qty.ToString() &amp; ")"
+      End If
+    End Function
+
+    Function ReorderAlert(qty As Integer, reorderPoint As Integer) As Boolean
+      Return qty &lt;= reorderPoint
+    End Function
+  </Code>
+
+  <ReportParameters>
+    <ReportParameter Name="WarehouseID">
+      <DataType>Integer</DataType>
+      <Prompt>Warehouse ID</Prompt>
+    </ReportParameter>
+    <ReportParameter Name="CategoryFilter">
+      <DataType>String</DataType>
+      <DefaultValue>
+        <Values><Value>ALL</Value></Values>
+      </DefaultValue>
+      <Prompt>Product Category</Prompt>
+    </ReportParameter>
+  </ReportParameters>
+
+  <DataSets>
+
+    <!-- Stored procedure dataset — manual migration required -->
+    <DataSet Name="InventoryStatus">
+      <Query>
+        <DataSourceName>RetailDW</DataSourceName>
+        <CommandType>StoredProcedure</CommandType>
+        <CommandText>dbo.usp_GetInventoryStatus</CommandText>
+        <QueryParameters>
+          <QueryParameter Name="@WarehouseID">
+            <Value>=Parameters!WarehouseID.Value</Value>
+          </QueryParameter>
+          <QueryParameter Name="@CategoryFilter">
+            <Value>=Parameters!CategoryFilter.Value</Value>
+          </QueryParameter>
+        </QueryParameters>
+      </Query>
+    </DataSet>
+
+  </DataSets>
+
+  <Body>
+    <ReportItems>
+
+      <Textbox Name="ReportTitle">
+        <Value>="Inventory Status — Warehouse " &amp; Parameters!WarehouseID.Value</Value>
+      </Textbox>
+
+      <Tablix Name="InventoryTable">
+        <DataSetName>InventoryStatus</DataSetName>
+        <TablixBody>
+          <TablixColumns>
+            <TablixColumn><Width>2in</Width></TablixColumn>
+            <TablixColumn><Width>2in</Width></TablixColumn>
+            <TablixColumn><Width>1.5in</Width></TablixColumn>
+          </TablixColumns>
+          <TablixRows>
+            <TablixRow>
+              <TablixCells>
+                <TablixCell><CellContents><Textbox Name="colSKU"><Value>=Fields!sku.Value</Value></Textbox></CellContents></TablixCell>
+                <TablixCell>
+                  <CellContents>
+                    <Textbox Name="colStockLevel">
+                      <!-- Uses VB.NET custom function -->
+                      <Value>=Code.FormatStockLevel(Fields!quantity_on_hand.Value)</Value>
+                    </Textbox>
+                  </CellContents>
+                </TablixCell>
+                <TablixCell>
+                  <CellContents>
+                    <Textbox Name="colReorder">
+                      <Value>=IIF(Code.ReorderAlert(Fields!quantity_on_hand.Value, Fields!reorder_point.Value), "REORDER NOW", "")</Value>
+                    </Textbox>
+                  </CellContents>
+                </TablixCell>
+              </TablixCells>
+            </TablixRow>
+          </TablixRows>
+        </TablixBody>
+      </Tablix>
+
+    </ReportItems>
+  </Body>
+
+</Report>

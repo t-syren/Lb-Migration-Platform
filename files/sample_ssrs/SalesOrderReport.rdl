@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sample SSRS Report: SalesOrderReport
+  Scenario: Daily sales orders by region with customer details.
+  Contains: 2 datasets (Text queries), 1 parameter, 1 Tablix, 1 Chart.
+  Use this to test the SSRS transpiler (auto-convertible).
+-->
+<Report xmlns="http://schemas.microsoft.com/sqlserver/reporting/2010/01/reportdefinition">
+  <Name>SalesOrderReport</Name>
+  <Description>Daily Sales Orders by Region — auto-convertible sample</Description>
+
+  <DataSources>
+    <DataSource Name="RetailDW">
+      <ConnectionProperties>
+        <DataProvider>SQL</DataProvider>
+        <ConnectString>Data Source=sql-dw-prod;Initial Catalog=RetailDW;Integrated Security=True</ConnectString>
+      </ConnectionProperties>
+    </DataSource>
+  </DataSources>
+
+  <ReportParameters>
+    <ReportParameter Name="ReportDate">
+      <DataType>DateTime</DataType>
+      <DefaultValue>
+        <Values>
+          <Value>=Today()</Value>
+        </Values>
+      </DefaultValue>
+      <Prompt>Report Date</Prompt>
+    </ReportParameter>
+    <ReportParameter Name="Region">
+      <DataType>String</DataType>
+      <DefaultValue>
+        <Values>
+          <Value>ALL</Value>
+        </Values>
+      </DefaultValue>
+      <Prompt>Region (ALL for all regions)</Prompt>
+    </ReportParameter>
+  </ReportParameters>
+
+  <DataSets>
+
+    <!-- Dataset 1: Order summary by region -->
+    <DataSet Name="OrderSummary">
+      <Query>
+        <DataSourceName>RetailDW</DataSourceName>
+        <CommandType>Text</CommandType>
+        <CommandText>
+          SELECT
+            CAST(o.order_date AS DATE)    AS order_day,
+            c.region,
+            COUNT(o.order_id)             AS order_count,
+            SUM(o.total_amount)           AS total_revenue,
+            AVG(o.total_amount)           AS avg_order_value,
+            SUM(CASE WHEN o.discount_tier = 'GOLD'   THEN 1 ELSE 0 END) AS gold_orders,
+            SUM(CASE WHEN o.discount_tier = 'SILVER' THEN 1 ELSE 0 END) AS silver_orders,
+            SUM(CASE WHEN o.discount_tier = 'BRONZE' THEN 1 ELSE 0 END) AS bronze_orders
+          FROM dbo.fact_orders o
+          INNER JOIN dbo.customers c ON o.customer_id = c.customer_id
+          WHERE CAST(o.order_date AS DATE) = CAST(@ReportDate AS DATE)
+            AND (@Region = 'ALL' OR c.region = @Region)
+          GROUP BY CAST(o.order_date AS DATE), c.region
+          ORDER BY c.region
+        </CommandText>
+        <QueryParameters>
+          <QueryParameter Name="@ReportDate">
+            <Value>=Parameters!ReportDate.Value</Value>
+          </QueryParameter>
+          <QueryParameter Name="@Region">
+            <Value>=Parameters!Region.Value</Value>
+          </QueryParameter>
+        </QueryParameters>
+      </Query>
+    </DataSet>
+
+    <!-- Dataset 2: Top 10 orders by value -->
+    <DataSet Name="TopOrders">
+      <Query>
+        <DataSourceName>RetailDW</DataSourceName>
+        <CommandType>Text</CommandType>
+        <CommandText>
+          SELECT TOP 10
+            o.order_id,
+            o.order_date,
+            c.first_name + ' ' + c.last_name AS customer_name,
+            c.email,
+            c.region,
+            o.total_amount,
+            o.discount_tier,
+            o.status
+          FROM dbo.fact_orders o
+          INNER JOIN dbo.customers c ON o.customer_id = c.customer_id
+          WHERE CAST(o.order_date AS DATE) = CAST(@ReportDate AS DATE)
+          ORDER BY o.total_amount DESC
+        </CommandText>
+        <QueryParameters>
+          <QueryParameter Name="@ReportDate">
+            <Value>=Parameters!ReportDate.Value</Value>
+          </QueryParameter>
+        </QueryParameters>
+      </Query>
+    </DataSet>
+
+  </DataSets>
+
+  <Body>
+    <ReportItems>
+
+      <!-- Title textbox -->
+      <Textbox Name="ReportTitle">
+        <Value>=&quot;Sales Order Report — &quot; &amp; Format(Parameters!ReportDate.Value, &quot;yyyy-MM-dd&quot;)</Value>
+      </Textbox>
+
+      <!-- Summary table by region -->
+      <Tablix Name="RegionSummaryTable">
+        <DataSetName>OrderSummary</DataSetName>
+        <TablixBody>
+          <TablixColumns>
+            <TablixColumn><Width>1.5in</Width></TablixColumn>
+            <TablixColumn><Width>1in</Width></TablixColumn>
+            <TablixColumn><Width>1.5in</Width></TablixColumn>
+            <TablixColumn><Width>1.5in</Width></TablixColumn>
+          </TablixColumns>
+          <TablixRows>
+            <TablixRow>
+              <TablixCells>
+                <TablixCell><CellContents><Textbox Name="colRegion"><Value>=Fields!region.Value</Value></Textbox></CellContents></TablixCell>
+                <TablixCell><CellContents><Textbox Name="colOrders"><Value>=Fields!order_count.Value</Value></Textbox></CellContents></TablixCell>
+                <TablixCell><CellContents><Textbox Name="colRevenue"><Value>=Format(Fields!total_revenue.Value, "C")</Value></Textbox></CellContents></TablixCell>
+                <TablixCell><CellContents><Textbox Name="colAvgOrder"><Value>=Format(Fields!avg_order_value.Value, "C")</Value></Textbox></CellContents></TablixCell>
+              </TablixCells>
+            </TablixRow>
+          </TablixRows>
+        </TablixBody>
+      </Tablix>
+
+      <!-- Top orders chart -->
+      <Chart Name="RevenueByRegionChart">
+        <DataSetName>OrderSummary</DataSetName>
+      </Chart>
+
+      <!-- Top 10 orders detail table -->
+      <Tablix Name="TopOrdersTable">
+        <DataSetName>TopOrders</DataSetName>
+      </Tablix>
+
+    </ReportItems>
+  </Body>
+
+</Report>

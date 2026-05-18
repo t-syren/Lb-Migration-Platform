@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sample SSIS Package: RetailETL
+  Scenario: Extract orders from SQL Server, apply transformations, load to DW.
+  Use this to test the SSIS transpiler (BladeBridge -> SparkSQL).
+-->
+<Dts:Executable xmlns:Dts="www.microsoft.com/SqlServer/Dts"
+  Dts:refId="Package"
+  Dts:CreationName="Microsoft.Package"
+  Dts:Description="Retail ETL - Orders to Data Warehouse"
+  Dts:DTSID="{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
+  Dts:ExecutableType="Microsoft.Package"
+  Dts:ObjectName="RetailETL">
+
+  <Dts:ConnectionManagers>
+    <Dts:ConnectionManager
+      Dts:refId="Package.ConnectionManagers[SourceOLTP]"
+      Dts:CreationName="OLEDB"
+      Dts:DTSID="{C3D4E5F6-A7B8-9012-CDEF-123456789012}"
+      Dts:ObjectName="SourceOLTP">
+      <Dts:ObjectData>
+        <ConnectionManager
+          ConnectionString="Data Source=sql-server-prod;Initial Catalog=RetailOLTP;Provider=SQLNCLI11;Integrated Security=SSPI;"/>
+      </Dts:ObjectData>
+    </Dts:ConnectionManager>
+
+    <Dts:ConnectionManager
+      Dts:refId="Package.ConnectionManagers[DestDW]"
+      Dts:CreationName="OLEDB"
+      Dts:DTSID="{D4E5F6A7-B8C9-0123-DEFA-234567890123}"
+      Dts:ObjectName="DestDW">
+      <Dts:ObjectData>
+        <ConnectionManager
+          ConnectionString="Data Source=sql-dw-prod;Initial Catalog=RetailDW;Provider=SQLNCLI11;Integrated Security=SSPI;"/>
+      </Dts:ObjectData>
+    </Dts:ConnectionManager>
+  </Dts:ConnectionManagers>
+
+  <Dts:Executables>
+
+    <!-- Data Flow Task: Extract and transform orders -->
+    <Dts:Executable
+      Dts:refId="Package\ExtractOrders"
+      Dts:CreationName="Microsoft.Pipeline"
+      Dts:Description="Extract daily orders from OLTP and load to DW"
+      Dts:DTSID="{E5F6A7B8-C9D0-1234-EFAB-345678901234}"
+      Dts:ExecutableType="Microsoft.Pipeline"
+      Dts:ObjectName="ExtractOrders">
+      <Dts:ObjectData>
+        <pipeline>
+          <components>
+
+            <!-- Source: Read from SQL Server -->
+            <component
+              refId="Package\ExtractOrders\OLE_DB_Source"
+              componentClassID="Microsoft.OLEDBSource"
+              name="OLE DB Source">
+              <properties>
+                <property name="SqlCommand">
+                  SELECT
+                    o.order_id,
+                    o.customer_id,
+                    o.order_date,
+                    o.total_amount,
+                    o.status,
+                    c.first_name,
+                    c.last_name,
+                    c.email,
+                    c.region
+                  FROM dbo.orders o
+                  INNER JOIN dbo.customers c ON o.customer_id = c.customer_id
+                  WHERE o.order_date &gt;= DATEADD(day, -1, GETDATE())
+                    AND o.status NOT IN ('CANCELLED', 'RETURNED')
+                </property>
+              </properties>
+              <connections>
+                <connection
+                  connectionManagerID="Package.ConnectionManagers[SourceOLTP]"
+                  name="OleDbConnection"/>
+              </connections>
+            </component>
+
+            <!-- Transformation: Add discount_tier derived column -->
+            <component
+              refId="Package\ExtractOrders\DerivedColumn_DiscountTier"
+              componentClassID="Microsoft.DerivedColumn"
+              name="DerivedColumn_DiscountTier">
+              <outputs>
+                <output name="Derived Column Output">
+                  <outputColumns>
+                    <outputColumn name="discount_tier" dataType="str" length="10">
+                      <properties>
+                        <property name="Expression">
+                          total_amount &gt;= 1000 ? "GOLD" : total_amount &gt;= 500 ? "SILVER" : "BRONZE"
+                        </property>
+                      </properties>
+                    </outputColumn>
+                    <outputColumn name="full_name" dataType="str" length="100">
+                      <properties>
+                        <property name="Expression">first_name + " " + last_name</property>
+                      </properties>
+                    </outputColumn>
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <!-- Conditional Split: Route completed vs pending orders -->
+            <component
+              refId="Package\ExtractOrders\ConditionalSplit_Status"
+              componentClassID="Microsoft.ConditionalSplit"
+              name="ConditionalSplit_Status">
+              <outputs>
+                <output name="Completed" isErrorOut="false">
+                  <properties>
+                    <property name="Expression">status == "COMPLETED"</property>
+                    <property name="EvaluationOrder">1</property>
+                  </properties>
+                </output>
+                <output name="Pending" isErrorOut="false">
+                  <properties>
+                    <property name="Expression">status == "PENDING"</property>
+                    <property name="EvaluationOrder">2</property>
+                  </properties>
+                </output>
+              </outputs>
+            </component>
+
+            <!-- Destination: Load completed orders to DW fact table -->
+            <component
+              refId="Package\ExtractOrders\OLE_DB_Destination"
+              componentClassID="Microsoft.OLEDBDestination"
+              name="OLE DB Destination">
+              <properties>
+                <property name="OpenRowset">dbo.fact_orders</property>
+                <property name="AccessMode">3</property>
+              </properties>
+              <connections>
+                <connection
+                  connectionManagerID="Package.ConnectionManagers[DestDW]"
+                  name="OleDbConnection"/>
+              </connections>
+            </component>
+
+          </components>
+        </pipeline>
+      </Dts:ObjectData>
+    </Dts:Executable>
+
+    <!-- Execute SQL Task: Merge daily summary -->
+    <Dts:Executable
+      Dts:refId="Package\UpdateDailySummary"
+      Dts:CreationName="Microsoft.ExecuteSQLTask"
+      Dts:Description="Upsert daily_order_summary from fact_orders"
+      Dts:DTSID="{F6A7B8C9-D0E1-2345-FABC-456789012345}"
+      Dts:ExecutableType="Microsoft.ExecuteSQLTask"
+      Dts:ObjectName="UpdateDailySummary">
+      <Dts:ObjectData>
+        <SqlTaskData
+          Connection="Package.ConnectionManagers[DestDW]"
+          SqlStatementSource="
+            MERGE dbo.daily_order_summary AS target
+            USING (
+              SELECT
+                CAST(order_date AS DATE) AS order_day,
+                region,
+                COUNT(*)               AS order_count,
+                SUM(total_amount)      AS daily_revenue,
+                AVG(total_amount)      AS avg_order_value
+              FROM dbo.fact_orders
+              WHERE CAST(order_date AS DATE) = CAST(GETDATE() - 1 AS DATE)
+              GROUP BY CAST(order_date AS DATE), region
+            ) AS source
+              ON target.order_day = source.order_day
+             AND target.region    = source.region
+            WHEN MATCHED THEN
+              UPDATE SET
+                target.order_count     = source.order_count,
+                target.daily_revenue   = source.daily_revenue,
+                target.avg_order_value = source.avg_order_value
+            WHEN NOT MATCHED THEN
+              INSERT (order_day, region, order_count, daily_revenue, avg_order_value)
+              VALUES (source.order_day, source.region, source.order_count,
+                      source.daily_revenue, source.avg_order_value);
+          "/>
+      </Dts:ObjectData>
+    </Dts:Executable>
+
+  </Dts:Executables>
+
+  <!-- Control flow: run UpdateDailySummary after ExtractOrders succeeds -->
+  <Dts:PrecedenceConstraints>
+    <Dts:PrecedenceConstraint
+      Dts:refId="Package.PrecedenceConstraints[Constraint]"
+      Dts:From="Package\ExtractOrders"
+      Dts:To="Package\UpdateDailySummary"
+      Dts:DTSID="{A7B8C9D0-E1F2-3456-ABCD-567890123456}"
+      Dts:LogicalAnd="True"
+      Dts:Value="0"/>
+  </Dts:PrecedenceConstraints>
+
+</Dts:Executable>
