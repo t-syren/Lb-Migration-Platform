@@ -149,7 +149,7 @@ st.set_page_config(
     page_title="SyrenBridge — Migration Platform",
     page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1514,55 +1514,39 @@ def render_transpile_metrics(n_src, n_out, elapsed, llm_counts=(0, 0)):
     st.markdown("<div style='height:1.25rem'></div>", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SIDEBAR NAVIGATION
+# TOP NAV + ROUTING
 # ══════════════════════════════════════════════════════════════════════════════
 
-with st.sidebar:
-    st.markdown("""
-    <div style="padding:1.75rem 0.5rem 1.25rem;">
-        <div style="font-size:1.3rem;font-weight:800;color:#f1f5f9;
-                    letter-spacing:-0.03em;line-height:1;">
-            Syren<span class="sb-accent">Bridge</span>
-        </div>
-        <div style="font-size:0.67rem;color:#475569;margin-top:4px;font-weight:600;
-                    letter-spacing:0.1em;text-transform:uppercase;">
-            Migration Suite
-        </div>
+_PAGES = ["Get Started", "Analyzer", "Transpiler", "Settings"]
+selected_page = st.query_params.get("page", "Get Started")
+if selected_page not in _PAGES:
+    selected_page = "Get Started"
+
+_logo_src = f"data:image/png;base64,{_LOGO_B64}" if _LOGO_B64 else ""
+_logo_img = f'<img src="{_logo_src}" alt="Syren">' if _logo_src else ""
+
+def _nav_link(label: str, page: str, active: str) -> str:
+    cls = "sb-link active" if page == active else "sb-link"
+    return f'<a class="{cls}" href="?page={page}" target="_self">{label}</a>'
+
+_nav_html = f"""
+<div id="sb-nav">
+    <a class="sb-logo" href="?page=Get+Started" target="_self">
+        {_logo_img}
+        <span>SyrenBridge</span>
+    </a>
+    <div class="sb-divider"></div>
+    <div class="sb-links">
+        {_nav_link("Home", "Get Started", selected_page)}
+        {_nav_link("Analyser", "Analyzer", selected_page)}
+        {_nav_link("Transpiler", "Transpiler", selected_page)}
+        {_nav_link("Settings", "Settings", selected_page)}
     </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("<hr style='border-color:#1e293b;margin:0 0 0.75rem;'>", unsafe_allow_html=True)
-
-    selected_page = st.radio(
-        "Navigation",
-        ["Get Started", "Analyzer", "Transpiler", "Settings"],
-        label_visibility="collapsed",
-        key="main_nav",
-    )
-
-    st.markdown("<div style='height:1.5rem'></div>", unsafe_allow_html=True)
-
-    st.markdown("""
-    <div style="border-top:1px solid #1e293b;padding-top:1.25rem;padding-left:0.5rem;">
-        <div style="font-size:0.64rem;font-weight:700;color:#334155;letter-spacing:0.1em;
-                    text-transform:uppercase;margin-bottom:0.65rem;">Suite Capabilities</div>
-        <div style="font-size:0.78rem;color:#475569;line-height:1.9;">
-            🔍 &nbsp;36 analysis technologies<br>
-            ⚡ &nbsp;13 transpiler dialects<br>
-            🗄️ &nbsp;Databricks SQL output<br>
-            🔁 &nbsp;Oozie workflow conversion<br>
-            ☁️ &nbsp;Runs on Databricks Apps
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("""
-    <div style="position:absolute;bottom:1.5rem;left:1rem;right:1rem;">
-        <div style="font-size:0.68rem;color:#334155;text-align:center;">
-            © 2024 Syren Cloud
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    <div class="sb-spacer"></div>
+    <span class="sb-badge">⚡ 13 Dialects</span>
+</div>
+"""
+st.markdown(_nav_html, unsafe_allow_html=True)
 
 
 # ── Page header renderer ──────────────────────────────────────────────────────
