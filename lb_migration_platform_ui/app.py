@@ -1526,8 +1526,9 @@ _logo_src = f"data:image/png;base64,{_LOGO_B64}" if _LOGO_B64 else ""
 _logo_img = f'<img src="{_logo_src}" alt="Syren">' if _logo_src else ""
 
 def _nav_link(label: str, page: str, active: str) -> str:
+    from urllib.parse import quote_plus
     cls = "sb-link active" if page == active else "sb-link"
-    return f'<a class="{cls}" href="?page={page}" target="_self">{label}</a>'
+    return f'<a class="{cls}" href="?page={quote_plus(page)}" target="_self">{label}</a>'
 
 _nav_html = f"""
 <div id="sb-nav">
@@ -1577,7 +1578,7 @@ if selected_page == "Get Started":
     # ── Intro ─────────────────────────────────────────────────────────────────
     st.markdown("""
     <div style="max-width:720px;margin-bottom:2rem;">
-        <p style="color:#475569;font-size:0.95rem;line-height:1.7;margin:0;">
+        <p style="color:#94a3b8;font-size:0.95rem;line-height:1.7;margin:0;">
             SyrenBridge is Syren Cloud's enterprise migration suite for moving legacy data platforms
             to <strong>Databricks</strong>. It covers the full migration journey — from automated
             analysis of your existing codebase to production-ready converted code — supporting
@@ -1588,40 +1589,40 @@ if selected_page == "Get Started":
 
     # ── Quick-start steps ─────────────────────────────────────────────────────
     st.markdown("""
-    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;
-                padding:1.5rem 1.75rem;margin-bottom:2rem;">
+    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:12px;
+                backdrop-filter:blur(12px);padding:1.5rem 1.75rem;margin-bottom:2rem;">
         <div style="font-size:0.7rem;font-weight:700;color:#94a3b8;letter-spacing:0.1em;
                     text-transform:uppercase;margin-bottom:1.1rem;">Quick Start</div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1.25rem;">
             <div>
                 <div style="font-size:0.7rem;font-weight:700;color:#94a3b8;letter-spacing:0.08em;
                             text-transform:uppercase;margin-bottom:0.3rem;">Step 1</div>
-                <div style="font-weight:700;color:#0f172a;margin-bottom:0.3rem;font-size:0.95rem;">
+                <div style="font-weight:700;color:#f1f5f9;margin-bottom:0.3rem;font-size:0.95rem;">
                     🔍 Analyze
                 </div>
-                <div style="font-size:0.85rem;color:#64748b;line-height:1.6;">
+                <div style="font-size:0.85rem;color:#94a3b8;line-height:1.6;">
                     Select your source technology, upload source files or use Databricks workspace folder files, and get a
                     migration-readiness report — object inventory, function usage, SQL category breakdown.
                 </div>
             </div>
-            <div style="border-left:1px solid #e2e8f0;padding-left:1.25rem;">
+            <div style="border-left:1px solid rgba(255,255,255,0.08);padding-left:1.25rem;">
                 <div style="font-size:0.7rem;font-weight:700;color:#94a3b8;letter-spacing:0.08em;
                             text-transform:uppercase;margin-bottom:0.3rem;">Step 2</div>
-                <div style="font-weight:700;color:#0f172a;margin-bottom:0.3rem;font-size:0.95rem;">
+                <div style="font-weight:700;color:#f1f5f9;margin-bottom:0.3rem;font-size:0.95rem;">
                     ⚡ Transpile
                 </div>
-                <div style="font-size:0.85rem;color:#64748b;line-height:1.6;">
+                <div style="font-size:0.85rem;color:#94a3b8;line-height:1.6;">
                     Select your source dialect, upload files either locally or from your Databricks workspace, and download Databricks-compatible
                     output — SQL, PySpark notebooks, or Workflow JSON or you can write directly to your workspace folders.
                 </div>
             </div>
-            <div style="border-left:1px solid #e2e8f0;padding-left:1.25rem;">
+            <div style="border-left:1px solid rgba(255,255,255,0.08);padding-left:1.25rem;">
                 <div style="font-size:0.7rem;font-weight:700;color:#94a3b8;letter-spacing:0.08em;
                             text-transform:uppercase;margin-bottom:0.3rem;">First time?</div>
-                <div style="font-weight:700;color:#0f172a;margin-bottom:0.3rem;font-size:0.95rem;">
+                <div style="font-weight:700;color:#f1f5f9;margin-bottom:0.3rem;font-size:0.95rem;">
                     ⚙️ Configure
                 </div>
-                <div style="font-size:0.85rem;color:#64748b;line-height:1.6;">
+                <div style="font-size:0.85rem;color:#94a3b8;line-height:1.6;">
                     If running locally, go to <strong>Settings</strong> and enter your Databricks
                     workspace URL and token. On Databricks Apps this is automatic.
                 </div>
@@ -1654,20 +1655,20 @@ if selected_page == "Get Started":
 
     gs_table_rows = ""
     for i, (dialect, engine, output, exts) in enumerate(dialect_rows):
-        bg = "#ffffff" if i % 2 == 0 else "#f8fafc"
+        bg = "rgba(255,255,255,0.03)" if i % 2 == 0 else "rgba(255,255,255,0.015)"
         gs_table_rows += f"""
         <tr style="background:{bg};">
-            <td style="padding:0.55rem 0.85rem;font-weight:600;color:#0f172a;font-size:0.87rem;">{dialect}</td>
-            <td style="padding:0.55rem 0.85rem;color:#475569;font-size:0.84rem;">{engine}</td>
-            <td style="padding:0.55rem 0.85rem;color:#475569;font-size:0.84rem;">{output}</td>
+            <td style="padding:0.55rem 0.85rem;font-weight:600;color:#f1f5f9;font-size:0.87rem;">{dialect}</td>
+            <td style="padding:0.55rem 0.85rem;color:#94a3b8;font-size:0.84rem;">{engine}</td>
+            <td style="padding:0.55rem 0.85rem;color:#94a3b8;font-size:0.84rem;">{output}</td>
             <td style="padding:0.55rem 0.85rem;color:#94a3b8;font-size:0.78rem;font-family:monospace;">{exts}</td>
         </tr>"""
 
     st.markdown(f"""
-    <div style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;margin-bottom:2rem;">
+    <div style="border:1px solid rgba(255,255,255,0.08);border-radius:10px;overflow:hidden;margin-bottom:2rem;backdrop-filter:blur(12px);">
         <table style="width:100%;border-collapse:collapse;">
             <thead>
-                <tr style="background:#f1f5f9;border-bottom:1px solid #e2e8f0;">
+                <tr style="background:rgba(255,255,255,0.05);border-bottom:1px solid rgba(255,255,255,0.08);">
                     <th style="padding:0.6rem 0.85rem;text-align:left;font-size:0.68rem;
                                font-weight:700;letter-spacing:0.08em;color:#64748b;text-transform:uppercase;">Dialect</th>
                     <th style="padding:0.6rem 0.85rem;text-align:left;font-size:0.68rem;
@@ -1696,13 +1697,13 @@ if selected_page == "Get Started":
     gs_a1, gs_a2, gs_a3 = st.columns(3, gap="medium")
     def _tech_list(techs):
         return "".join(
-            f'<li style="padding:0.1rem 0;color:#475569;font-size:0.85rem;">{t}</li>'
+            f'<li style="padding:0.1rem 0;color:#94a3b8;font-size:0.85rem;">{t}</li>'
             for t in techs
         )
 
     with gs_a1:
         st.markdown(f"""
-        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:1rem 1.25rem;">
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:1rem 1.25rem;">
             <div style="font-size:0.68rem;font-weight:700;color:#94a3b8;letter-spacing:0.1em;
                         text-transform:uppercase;margin-bottom:0.6rem;">🗄️ SQL ({len(sql_techs)})</div>
             <ul style="list-style:none;padding:0;margin:0;line-height:1.7;">{_tech_list(sql_techs)}</ul>
@@ -1710,7 +1711,7 @@ if selected_page == "Get Started":
 
     with gs_a2:
         st.markdown(f"""
-        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:1rem 1.25rem;">
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:1rem 1.25rem;">
             <div style="font-size:0.68rem;font-weight:700;color:#94a3b8;letter-spacing:0.1em;
                         text-transform:uppercase;margin-bottom:0.6rem;">🔄 ETL ({len(etl_techs)})</div>
             <ul style="list-style:none;padding:0;margin:0;line-height:1.7;">{_tech_list(etl_techs)}</ul>
@@ -1718,7 +1719,7 @@ if selected_page == "Get Started":
 
     with gs_a3:
         st.markdown(f"""
-        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:1rem 1.25rem;">
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:1rem 1.25rem;">
             <div style="font-size:0.68rem;font-weight:700;color:#94a3b8;letter-spacing:0.1em;
                         text-transform:uppercase;margin-bottom:0.6rem;">💻 Code ({len(code_techs)})</div>
             <ul style="list-style:none;padding:0;margin:0;line-height:1.7;">{_tech_list(code_techs)}</ul>
@@ -1728,9 +1729,9 @@ if selected_page == "Get Started":
 
     # ── PySpark / Serverless note ─────────────────────────────────────────────
     st.markdown(
-        '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;'
-        'padding:0.8rem 1.1rem;font-size:0.86rem;color:#475569;">'
-        '💡 <strong style="color:#0f172a;">PySpark &amp; Spark Classic → Serverless</strong> '
+        '<div style="background:rgba(6,182,212,0.06);border:1px solid rgba(6,182,212,0.2);border-radius:8px;'
+        'padding:0.8rem 1.1rem;font-size:0.86rem;color:#67e8f9;">'
+        '💡 <strong style="color:#f1f5f9;">PySpark &amp; Spark Classic → Serverless</strong> '
         'migrations are handled by the Syren Server to Serverless Migration Platform — '
         '<a href="https://syren-s2s-platform-204242957656703.3.azure.databricksapps.com/#home" '
         'target="_blank" style="color:#2563eb;font-weight:600;">Open platform →</a>'
