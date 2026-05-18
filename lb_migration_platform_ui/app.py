@@ -1575,165 +1575,185 @@ if selected_page != "Home":
 
 if selected_page == "Home":
 
-    st.markdown("""
-    <div style="padding:3rem 0 2rem;">
-
-        <div style="text-align:center;max-width:760px;margin:0 auto 3.5rem;">
-            <div style="display:inline-block;background:rgba(255,54,33,0.1);border:1px solid rgba(255,54,33,0.25);
-                        border-radius:999px;padding:5px 16px;font-size:12px;font-weight:600;
-                        color:#FF3621;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:1.5rem;">
-                Enterprise Migration Platform
-            </div>
-            <h1 style="font-size:3rem;font-weight:800;color:#fff;letter-spacing:-0.04em;
-                       line-height:1.1;margin:0 0 1.25rem;">
-                Move legacy data platforms<br>to <span style="color:#FF3621;">Databricks</span>
-            </h1>
-            <p style="font-size:1.1rem;color:#94a3b8;line-height:1.7;margin:0 0 2.5rem;">
-                SyrenBridge automates the migration of SQL dialects, ETL pipelines, and workflow
-                orchestration to Databricks — from analysis through production-ready converted code.
-            </p>
-            <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
-                <a href="?page=Analyzer" target="_self"
-                   style="display:inline-block;background:#FF3621;color:#fff;font-weight:600;
-                          font-size:14px;padding:12px 28px;border-radius:9px;text-decoration:none;
-                          box-shadow:0 0 24px rgba(255,54,33,0.3);">
-                    Start Analysis
-                </a>
-                <a href="?page=Transpiler" target="_self"
-                   style="display:inline-block;background:rgba(255,255,255,0.05);color:#f1f5f9;
-                          font-weight:600;font-size:14px;padding:12px 28px;border-radius:9px;
-                          text-decoration:none;border:1px solid rgba(255,255,255,0.1);">
-                    Browse Transpiler
-                </a>
-            </div>
-        </div>
-
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:3rem;">
-            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
-                        border-radius:14px;padding:1.75rem;text-align:center;backdrop-filter:blur(12px);">
-                <div style="font-size:2.75rem;font-weight:800;color:#FF3621;
-                            font-family:'JetBrains Mono',monospace;line-height:1;">36</div>
-                <div style="font-size:13px;font-weight:600;color:#94a3b8;margin-top:8px;
-                            text-transform:uppercase;letter-spacing:0.07em;">Source Technologies</div>
-                <div style="font-size:12px;color:#475569;margin-top:4px;">SQL · ETL · Workflow · Code</div>
-            </div>
-            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
-                        border-radius:14px;padding:1.75rem;text-align:center;backdrop-filter:blur(12px);">
-                <div style="font-size:2.75rem;font-weight:800;color:#6366f1;
-                            font-family:'JetBrains Mono',monospace;line-height:1;">13</div>
-                <div style="font-size:13px;font-weight:600;color:#94a3b8;margin-top:8px;
-                            text-transform:uppercase;letter-spacing:0.07em;">Transpiler Dialects</div>
-                <div style="font-size:12px;color:#475569;margin-top:4px;">CLI · Custom engines · SSRS · Oozie</div>
-            </div>
-            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
-                        border-radius:14px;padding:1.75rem;text-align:center;backdrop-filter:blur(12px);">
-                <div style="font-size:2.75rem;font-weight:800;color:#06b6d4;
-                            font-family:'JetBrains Mono',monospace;line-height:1;">100%</div>
-                <div style="font-size:13px;font-weight:600;color:#94a3b8;margin-top:8px;
-                            text-transform:uppercase;letter-spacing:0.07em;">Databricks Native</div>
-                <div style="font-size:12px;color:#475569;margin-top:4px;">Runs on Databricks Apps</div>
-            </div>
-        </div>
-
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:3rem;">
-
-            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
-                        border-radius:16px;padding:2rem;backdrop-filter:blur(12px);">
-                <div style="width:40px;height:40px;background:rgba(255,54,33,0.1);
-                            border:1px solid rgba(255,54,33,0.2);border-radius:10px;
-                            display:flex;align-items:center;justify-content:center;margin-bottom:1.25rem;">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FF3621" stroke-width="2">
-                        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-                    </svg>
-                </div>
-                <div style="font-size:17px;font-weight:700;color:#fff;margin-bottom:0.6rem;">Code Analyzer</div>
-                <div style="font-size:14px;color:#94a3b8;line-height:1.65;margin-bottom:1.25rem;">
-                    Upload source files and receive a full migration-readiness report —
-                    object inventory, function usage, SQL category breakdown, and complexity scoring
-                    across 36 technologies.
-                </div>
-                <a href="?page=Analyzer" target="_self"
-                   style="font-size:13px;font-weight:600;color:#FF3621;text-decoration:none;">
-                    Open Analyzer &rarr;
-                </a>
-            </div>
-
-            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
-                        border-radius:16px;padding:2rem;backdrop-filter:blur(12px);">
-                <div style="width:40px;height:40px;background:rgba(99,102,241,0.1);
-                            border:1px solid rgba(99,102,241,0.2);border-radius:10px;
-                            display:flex;align-items:center;justify-content:center;margin-bottom:1.25rem;">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2">
-                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-                    </svg>
-                </div>
-                <div style="font-size:17px;font-weight:700;color:#fff;margin-bottom:0.6rem;">Code Transpiler</div>
-                <div style="font-size:14px;color:#94a3b8;line-height:1.65;margin-bottom:1.25rem;">
-                    Convert HiveSQL, SSIS, SSRS, Oozie workflows, and 9 other dialects to
-                    Databricks SQL, PySpark notebooks, or Jobs API JSON — with optional
-                    LLM-assisted refinement for complex statements.
-                </div>
-                <a href="?page=Transpiler" target="_self"
-                   style="font-size:13px;font-weight:600;color:#6366f1;text-decoration:none;">
-                    Open Transpiler &rarr;
-                </a>
-            </div>
-
-            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
-                        border-radius:16px;padding:2rem;backdrop-filter:blur(12px);">
-                <div style="width:40px;height:40px;background:rgba(6,182,212,0.1);
-                            border:1px solid rgba(6,182,212,0.2);border-radius:10px;
-                            display:flex;align-items:center;justify-content:center;margin-bottom:1.25rem;">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2">
-                        <rect x="3" y="3" width="18" height="18" rx="2"/>
-                        <path d="M3 9h18M9 21V9"/>
-                    </svg>
-                </div>
-                <div style="font-size:17px;font-weight:700;color:#fff;margin-bottom:0.6rem;">Workspace Integration</div>
-                <div style="font-size:14px;color:#94a3b8;line-height:1.65;margin-bottom:1.25rem;">
-                    Browse and fetch files directly from your Databricks workspace.
-                    Push converted output back into workspace folders without leaving the app.
-                </div>
-                <a href="?page=Settings" target="_self"
-                   style="font-size:13px;font-weight:600;color:#06b6d4;text-decoration:none;">
-                    Configure &rarr;
-                </a>
-            </div>
-
-            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
-                        border-radius:16px;padding:2rem;backdrop-filter:blur(12px);">
-                <div style="width:40px;height:40px;background:rgba(251,191,36,0.1);
-                            border:1px solid rgba(251,191,36,0.2);border-radius:10px;
-                            display:flex;align-items:center;justify-content:center;margin-bottom:1.25rem;">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2">
-                        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                        <path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
-                    </svg>
-                </div>
-                <div style="font-size:17px;font-weight:700;color:#fff;margin-bottom:0.6rem;">LLM-Assisted Migration</div>
-                <div style="font-size:14px;color:#94a3b8;line-height:1.65;margin-bottom:1.25rem;">
-                    Connect any OpenAI-compatible endpoint — including Databricks model serving —
-                    to automatically refine complex SQL statements that rule-based transpilation
-                    cannot fully resolve.
-                </div>
-                <a href="?page=Settings" target="_self"
-                   style="font-size:13px;font-weight:600;color:#fbbf24;text-decoration:none;">
-                    Configure LLM &rarr;
-                </a>
-            </div>
-
-        </div>
-
-        <div style="text-align:center;padding:1.5rem 0;border-top:1px solid rgba(255,255,255,0.06);">
-            <div style="font-size:12px;color:#334155;">
-                Built by Syren Cloud &nbsp;&middot;&nbsp; Powered by Databricks Labs Lakebridge
-                &nbsp;&middot;&nbsp;
-                <a href="?page=Docs" target="_self" style="color:#475569;text-decoration:none;">Documentation</a>
-            </div>
-        </div>
-
+    # Hero
+    st.html("""
+<div style="text-align:center;max-width:760px;margin:3rem auto 3.5rem;font-family:'Inter',sans-serif;">
+    <div style="display:inline-block;background:rgba(255,54,33,0.1);border:1px solid rgba(255,54,33,0.25);
+                border-radius:999px;padding:5px 16px;font-size:12px;font-weight:600;
+                color:#FF3621;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:1.5rem;">
+        Enterprise Migration Platform
     </div>
-    """, unsafe_allow_html=True)
+    <h1 style="font-size:2.75rem;font-weight:800;color:#ffffff;letter-spacing:-0.04em;
+               line-height:1.1;margin:0 0 1.25rem;font-family:'Inter',sans-serif;">
+        Move legacy data platforms<br>to <span style="color:#FF3621;">Databricks</span>
+    </h1>
+    <p style="font-size:1rem;color:#94a3b8;line-height:1.7;margin:0 0 2.5rem;font-family:'Inter',sans-serif;">
+        SyrenBridge automates the migration of SQL dialects, ETL pipelines, and workflow
+        orchestration to Databricks &mdash; from analysis through production-ready converted code.
+    </p>
+    <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+        <a href="?page=Analyzer" target="_self"
+           style="display:inline-block;background:#FF3621;color:#ffffff;font-weight:600;
+                  font-size:14px;padding:12px 28px;border-radius:9px;text-decoration:none;
+                  font-family:'Inter',sans-serif;">
+            Start Analysis
+        </a>
+        <a href="?page=Transpiler" target="_self"
+           style="display:inline-block;background:rgba(255,255,255,0.06);color:#f1f5f9;
+                  font-weight:600;font-size:14px;padding:12px 28px;border-radius:9px;
+                  text-decoration:none;border:1px solid rgba(255,255,255,0.12);
+                  font-family:'Inter',sans-serif;">
+            Browse Transpiler
+        </a>
+    </div>
+</div>
+""")
+
+    # Stats row
+    sc1, sc2, sc3 = st.columns(3, gap="medium")
+    with sc1:
+        st.html("""
+<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
+            border-radius:14px;padding:1.75rem;text-align:center;font-family:'Inter',sans-serif;">
+    <div style="font-size:2.5rem;font-weight:800;color:#FF3621;line-height:1;">36</div>
+    <div style="font-size:12px;font-weight:600;color:#94a3b8;margin-top:8px;
+                text-transform:uppercase;letter-spacing:0.07em;">Source Technologies</div>
+    <div style="font-size:12px;color:#475569;margin-top:4px;">SQL &middot; ETL &middot; Workflow &middot; Code</div>
+</div>
+""")
+    with sc2:
+        st.html("""
+<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
+            border-radius:14px;padding:1.75rem;text-align:center;font-family:'Inter',sans-serif;">
+    <div style="font-size:2.5rem;font-weight:800;color:#6366f1;line-height:1;">13</div>
+    <div style="font-size:12px;font-weight:600;color:#94a3b8;margin-top:8px;
+                text-transform:uppercase;letter-spacing:0.07em;">Transpiler Dialects</div>
+    <div style="font-size:12px;color:#475569;margin-top:4px;">CLI &middot; Custom engines &middot; SSRS &middot; Oozie</div>
+</div>
+""")
+    with sc3:
+        st.html("""
+<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
+            border-radius:14px;padding:1.75rem;text-align:center;font-family:'Inter',sans-serif;">
+    <div style="font-size:2.5rem;font-weight:800;color:#06b6d4;line-height:1;">100%</div>
+    <div style="font-size:12px;font-weight:600;color:#94a3b8;margin-top:8px;
+                text-transform:uppercase;letter-spacing:0.07em;">Databricks Native</div>
+    <div style="font-size:12px;color:#475569;margin-top:4px;">Runs on Databricks Apps</div>
+</div>
+""")
+
+    st.markdown("<div style='height:1.5rem'></div>", unsafe_allow_html=True)
+
+    # Feature cards — row 1
+    fc1, fc2 = st.columns(2, gap="medium")
+    with fc1:
+        st.html("""
+<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
+            border-radius:16px;padding:2rem;font-family:'Inter',sans-serif;height:100%;">
+    <div style="width:40px;height:40px;background:rgba(255,54,33,0.1);
+                border:1px solid rgba(255,54,33,0.2);border-radius:10px;
+                display:flex;align-items:center;justify-content:center;margin-bottom:1.25rem;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FF3621" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+    </div>
+    <div style="font-size:17px;font-weight:700;color:#ffffff;margin-bottom:0.6rem;">Code Analyzer</div>
+    <div style="font-size:14px;color:#94a3b8;line-height:1.65;margin-bottom:1.25rem;">
+        Upload source files and receive a full migration-readiness report &mdash;
+        object inventory, function usage, SQL category breakdown, and complexity scoring
+        across 36 technologies.
+    </div>
+    <a href="?page=Analyzer" target="_self"
+       style="font-size:13px;font-weight:600;color:#FF3621;text-decoration:none;">
+        Open Analyzer &#8594;
+    </a>
+</div>
+""")
+    with fc2:
+        st.html("""
+<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
+            border-radius:16px;padding:2rem;font-family:'Inter',sans-serif;height:100%;">
+    <div style="width:40px;height:40px;background:rgba(99,102,241,0.1);
+                border:1px solid rgba(99,102,241,0.2);border-radius:10px;
+                display:flex;align-items:center;justify-content:center;margin-bottom:1.25rem;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+        </svg>
+    </div>
+    <div style="font-size:17px;font-weight:700;color:#ffffff;margin-bottom:0.6rem;">Code Transpiler</div>
+    <div style="font-size:14px;color:#94a3b8;line-height:1.65;margin-bottom:1.25rem;">
+        Convert HiveSQL, SSIS, SSRS, Oozie workflows, and 9 other dialects to
+        Databricks SQL, PySpark notebooks, or Jobs API JSON &mdash; with optional
+        LLM-assisted refinement for complex statements.
+    </div>
+    <a href="?page=Transpiler" target="_self"
+       style="font-size:13px;font-weight:600;color:#6366f1;text-decoration:none;">
+        Open Transpiler &#8594;
+    </a>
+</div>
+""")
+
+    # Feature cards — row 2
+    fc3, fc4 = st.columns(2, gap="medium")
+    with fc3:
+        st.html("""
+<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
+            border-radius:16px;padding:2rem;font-family:'Inter',sans-serif;height:100%;">
+    <div style="width:40px;height:40px;background:rgba(6,182,212,0.1);
+                border:1px solid rgba(6,182,212,0.2);border-radius:10px;
+                display:flex;align-items:center;justify-content:center;margin-bottom:1.25rem;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>
+        </svg>
+    </div>
+    <div style="font-size:17px;font-weight:700;color:#ffffff;margin-bottom:0.6rem;">Workspace Integration</div>
+    <div style="font-size:14px;color:#94a3b8;line-height:1.65;margin-bottom:1.25rem;">
+        Browse and fetch files directly from your Databricks workspace.
+        Push converted output back into workspace folders without leaving the app.
+    </div>
+    <a href="?page=Settings" target="_self"
+       style="font-size:13px;font-weight:600;color:#06b6d4;text-decoration:none;">
+        Configure &#8594;
+    </a>
+</div>
+""")
+    with fc4:
+        st.html("""
+<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
+            border-radius:16px;padding:2rem;font-family:'Inter',sans-serif;height:100%;">
+    <div style="width:40px;height:40px;background:rgba(251,191,36,0.1);
+                border:1px solid rgba(251,191,36,0.2);border-radius:10px;
+                display:flex;align-items:center;justify-content:center;margin-bottom:1.25rem;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
+        </svg>
+    </div>
+    <div style="font-size:17px;font-weight:700;color:#ffffff;margin-bottom:0.6rem;">LLM-Assisted Migration</div>
+    <div style="font-size:14px;color:#94a3b8;line-height:1.65;margin-bottom:1.25rem;">
+        Connect any OpenAI-compatible endpoint &mdash; including Databricks model serving &mdash;
+        to automatically refine complex SQL statements that rule-based transpilation
+        cannot fully resolve.
+    </div>
+    <a href="?page=Settings" target="_self"
+       style="font-size:13px;font-weight:600;color:#fbbf24;text-decoration:none;">
+        Configure LLM &#8594;
+    </a>
+</div>
+""")
+
+    # Footer
+    st.html("""
+<div style="text-align:center;padding:2rem 0 1rem;border-top:1px solid rgba(255,255,255,0.06);
+            margin-top:1.5rem;font-family:'Inter',sans-serif;">
+    <div style="font-size:12px;color:#475569;">
+        Built by Syren Cloud &nbsp;&middot;&nbsp; Powered by Databricks Labs Lakebridge
+        &nbsp;&middot;&nbsp;
+        <a href="?page=Docs" target="_self" style="color:#64748b;text-decoration:none;">Documentation</a>
+    </div>
+</div>
+""")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
