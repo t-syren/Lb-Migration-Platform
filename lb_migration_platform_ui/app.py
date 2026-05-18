@@ -114,7 +114,7 @@ TECH_EXTENSIONS: dict[int, list[str]] = {
     35: ["sql", "ddl", "dml"],
 }
 
-CATEGORY_ICON = {"SQL": "🗄️", "ETL": "🔄", "Code": "💻"}
+CATEGORY_ICON = {"SQL": "SQL", "ETL": "ETL", "Code": "Code"}
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DATA — TRANSPILER
@@ -147,7 +147,7 @@ TRANSPILER_TARGETS = {
 
 st.set_page_config(
     page_title="SyrenBridge — Migration Platform",
-    page_icon="⚡",
+    page_icon="S",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -731,14 +731,14 @@ def render_transpile_metric_cards(
     with metric_columns[0]:
         st.markdown(f"""
         <div class="metric-card">
-            <div class="metric-icon">ðŸ“</div>
+
             <div class="metric-val">{n_src}</div>
             <div class="metric-lbl">Files Processed</div>
         </div>""", unsafe_allow_html=True)
     with metric_columns[1]:
         st.markdown(f"""
         <div class="metric-card">
-            <div class="metric-icon">âœ…</div>
+
             <div class="metric-val">{n_out}</div>
             <div class="metric-lbl">Files Generated</div>
         </div>""", unsafe_allow_html=True)
@@ -753,7 +753,7 @@ def render_transpile_metric_cards(
     with metric_columns[-1]:
         st.markdown(f"""
         <div class="metric-card">
-            <div class="metric-icon">âš¡</div>
+
             <div class="metric-val">{elapsed:.1f}s</div>
             <div class="metric-lbl">Time Taken</div>
         </div>""", unsafe_allow_html=True)
@@ -806,11 +806,11 @@ def render_oozie_workflow_create_section(tp_out_dir: str, key_suffix: str) -> No
                 # ==============================
                 # SHOW PAYLOAD
                 # ==============================
-                st.subheader("🚨 Job Payload Sent to Databricks")
+                st.subheader("Job Payload Sent to Databricks")
                 # st.json(job_payload)
                 dbx = DatabricksClient.from_app_context()
                 response = dbx.create_job(job_payload)
-                st.subheader("📡 Databricks API Response")
+                st.subheader("Databricks API Response")
                 # st.json(response)
 
                 if "job_id" in response:
@@ -868,13 +868,13 @@ def render_transpile_output_section() -> None:
     if info.get("is_oozie"):
         oozie_links = info.get("oozie_links", [])
         if oozie_links:
-            st.markdown("**🔗 Coordinator → Workflow Links**")
+            st.markdown("**Coordinator → Workflow Links**")
             for lk in oozie_links:
                 if lk["workflow"]:
                     st.success(f"{lk['coordinator']} → linked to **{lk['workflow']}** via `run_job_task`")
                 else:
                     st.warning(f"{lk['coordinator']} → no workflow matched — add `run_job_task` manually")
-        st.markdown("⚠️ **Oozie Conversion Notes**")
+        st.markdown("**Oozie Conversion Notes**")
         with st.expander("ℹ️ View details"):
             st.markdown("""
         - **Workflow jobs** are created as independent Databricks jobs with a full task graph.
@@ -891,7 +891,7 @@ def render_transpile_output_section() -> None:
     st.markdown("""
     <div class="results-header">
         <div class="results-title">
-            ⚡ Transpiled Output <span class="success-pill">Ready</span>
+            Transpiled Output <span class="success-pill">Ready</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -910,7 +910,7 @@ def render_transpile_output_section() -> None:
     dl_col, info_col = st.columns([1, 2])
     with dl_col:
         st.download_button(
-            label="📥  Download All Output Files",
+            label="Download All Output Files",
             data=zip_bytes,
             file_name=zip_name,
             mime="application/zip",
@@ -920,7 +920,7 @@ def render_transpile_output_section() -> None:
     with info_col:
         st.markdown(f"""
         <div class="info-box">
-            <strong>📦 {zip_name}</strong>
+            <strong>{zip_name}</strong>
             <p>{n_out} converted file(s) · {b_out/1024:.1f} KB total</p>
         </div>
         """, unsafe_allow_html=True)
@@ -938,7 +938,7 @@ def render_transpile_output_section() -> None:
         upload_dest = "/" + upload_dest
         st.session_state["tp_upload_dest"] = upload_dest
 
-    if st.button("📤  Upload All Output Files to Databricks", key="tp_upload_output", width='stretch'):
+    if st.button("Upload All Output Files to Databricks", key="tp_upload_output", width='stretch'):
         try:
             ok, upload_errors = upload_directory_to_workspace(tp_out_dir, upload_dest)
             if ok:
@@ -950,7 +950,7 @@ def render_transpile_output_section() -> None:
         except Exception as e:
             st.error(f"Upload error: {e}")
 
-    st.markdown("**📂 Output File Tree**")
+    st.markdown("**Output File Tree**")
     tree_html, _, _ = build_file_tree_html(tp_out_dir)
     st.markdown(f'<div class="file-tree">{tree_html}</div>', unsafe_allow_html=True)
 
@@ -961,7 +961,7 @@ def render_transpile_output_section() -> None:
         key=lambda p: str(p)
     )
     if output_files:
-        st.markdown("**👁️ File Preview**")
+        st.markdown("**File Preview**")
         preview_tabs = st.tabs([p.name for p in output_files[:20]])
         for tab, fp in zip(preview_tabs, output_files[:20]):
             with tab:
@@ -979,7 +979,7 @@ def render_transpile_output_section() -> None:
     if os.path.exists(tp_err_file):
         err_content = Path(tp_err_file).read_text(encoding="utf-8", errors="replace").strip()
         if err_content:
-            with st.expander("⚠️ Transpilation error log", expanded=False):
+            with st.expander("Transpilation error log", expanded=False):
                 st.code(err_content, language="text")
         else:
             st.success("✅ No transpilation errors logged.")
@@ -1437,13 +1437,13 @@ def build_file_tree_html(directory: str) -> tuple[str, int, int]:
         depth = len(p.relative_to(root).parts) - 1
         indent = "│  " * depth + ("├─ " if depth > 0 else "")
         if p.is_dir():
-            lines.append(f'<span class="dir">{indent}📁 {p.name}/</span>')
+            lines.append(f'<span class="dir">{indent}{p.name}/</span>')
         else:
             size = p.stat().st_size
             total_files += 1
             total_bytes += size
             lines.append(
-                f'<span class="file">{indent}📄 {p.name}</span>'
+                f'<span class="file">{indent}{p.name}</span>'
                 f'<span class="meta">  ({size:,} bytes)</span>'
             )
     return "<br>".join(lines) if lines else '<span class="meta">No files found.</span>', total_files, total_bytes
@@ -1475,7 +1475,6 @@ def render_transpile_metrics(n_src, n_out, elapsed, llm_counts=(0, 0)):
     with cols[idx]:
         st.markdown(f"""
         <div class="metric-card">
-            <div class="metric-icon">📁</div>
             <div class="metric-val">{n_src}</div>
             <div class="metric-lbl">Files Processed</div>
         </div>""", unsafe_allow_html=True)
@@ -1485,7 +1484,6 @@ def render_transpile_metrics(n_src, n_out, elapsed, llm_counts=(0, 0)):
     with cols[idx]:
         st.markdown(f"""
         <div class="metric-card">
-            <div class="metric-icon">✅</div>
             <div class="metric-val">{n_out}</div>
             <div class="metric-lbl">Files Generated</div>
         </div>""", unsafe_allow_html=True)
@@ -1506,7 +1504,6 @@ def render_transpile_metrics(n_src, n_out, elapsed, llm_counts=(0, 0)):
     with cols[idx]:
         st.markdown(f"""
         <div class="metric-card">
-            <div class="metric-icon">⚡</div>
             <div class="metric-val">{elapsed:.1f}s</div>
             <div class="metric-lbl">Time Taken</div>
         </div>""", unsafe_allow_html=True)
@@ -1517,10 +1514,10 @@ def render_transpile_metrics(n_src, n_out, elapsed, llm_counts=(0, 0)):
 # TOP NAV + ROUTING
 # ══════════════════════════════════════════════════════════════════════════════
 
-_PAGES = ["Get Started", "Analyzer", "Transpiler", "Settings"]
-selected_page = st.query_params.get("page", "Get Started")
+_PAGES = ["Home", "Docs", "Analyzer", "Transpiler", "Settings"]
+selected_page = st.query_params.get("page", "Home")
 if selected_page not in _PAGES:
-    selected_page = "Get Started"
+    selected_page = "Home"
 
 _logo_src = f"data:image/png;base64,{_LOGO_B64}" if _LOGO_B64 else ""
 _logo_img = f'<img src="{_logo_src}" alt="Syren">' if _logo_src else ""
@@ -1532,19 +1529,20 @@ def _nav_link(label: str, page: str, active: str) -> str:
 
 _nav_html = f"""
 <div id="sb-nav">
-    <a class="sb-logo" href="?page=Get+Started" target="_self">
+    <a class="sb-logo" href="?page=Home" target="_self">
         {_logo_img}
         <span>SyrenBridge</span>
     </a>
     <div class="sb-divider"></div>
     <div class="sb-links">
-        {_nav_link("Home", "Get Started", selected_page)}
+        {_nav_link("Home", "Home", selected_page)}
+        {_nav_link("Docs", "Docs", selected_page)}
         {_nav_link("Analyser", "Analyzer", selected_page)}
         {_nav_link("Transpiler", "Transpiler", selected_page)}
         {_nav_link("Settings", "Settings", selected_page)}
     </div>
     <div class="sb-spacer"></div>
-    <span class="sb-badge">⚡ 13 Dialects</span>
+    <span class="sb-badge">13 Dialects</span>
 </div>
 """
 st.markdown(_nav_html, unsafe_allow_html=True)
@@ -1552,13 +1550,15 @@ st.markdown(_nav_html, unsafe_allow_html=True)
 
 # ── Page header renderer ──────────────────────────────────────────────────────
 _PAGE_META = {
-    "Get Started": ("📚", "Get Started", "Overview, capabilities, and how to use SyrenBridge"),
-    "Analyzer":    ("🔍", "Code Analyzer", "Analyze legacy source code for migration readiness"),
-    "Transpiler":  ("⚡", "Code Transpiler", "Convert source code to Databricks-compatible output"),
-    "Settings":    ("⚙️", "Settings", "Configure Databricks workspace credentials"),
+    "Home":       ("", "SyrenBridge", "Enterprise migration platform by Syren Cloud"),
+    "Docs":       ("", "Documentation", "Overview, capabilities, and how to use SyrenBridge"),
+    "Analyzer":   ("", "Code Analyzer", "Analyze legacy source code for migration readiness"),
+    "Transpiler": ("", "Code Transpiler", "Convert source code to Databricks-compatible output"),
+    "Settings":   ("", "Settings", "Configure Databricks workspace credentials"),
 }
 _icon, _title, _subtitle = _PAGE_META[selected_page]
-st.markdown(f"""
+if selected_page != "Home":
+    st.markdown(f"""
 <div class="page-hdr">
     <div class="page-hdr-icon">{_icon}</div>
     <div>
@@ -1570,10 +1570,181 @@ st.markdown(f"""
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PAGE — GET STARTED
+# PAGE — HOME
 # ══════════════════════════════════════════════════════════════════════════════
 
-if selected_page == "Get Started":
+if selected_page == "Home":
+
+    st.markdown("""
+    <div style="padding:3rem 0 2rem;">
+
+        <!-- Hero -->
+        <div style="text-align:center;max-width:760px;margin:0 auto 3.5rem;">
+            <div style="display:inline-block;background:rgba(255,54,33,0.1);border:1px solid rgba(255,54,33,0.25);
+                        border-radius:999px;padding:5px 16px;font-size:12px;font-weight:600;
+                        color:#FF3621;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:1.5rem;">
+                Enterprise Migration Platform
+            </div>
+            <h1 style="font-size:3rem;font-weight:800;color:#fff;letter-spacing:-0.04em;
+                       line-height:1.1;margin:0 0 1.25rem;">
+                Move legacy data platforms<br>to <span style="color:#FF3621;">Databricks</span>
+            </h1>
+            <p style="font-size:1.1rem;color:#94a3b8;line-height:1.7;margin:0 0 2.5rem;">
+                SyrenBridge automates the migration of SQL dialects, ETL pipelines, and workflow
+                orchestration to Databricks — from analysis through production-ready converted code.
+            </p>
+            <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+                <a href="?page=Analyzer" target="_self"
+                   style="display:inline-block;background:#FF3621;color:#fff;font-weight:600;
+                          font-size:14px;padding:12px 28px;border-radius:9px;text-decoration:none;
+                          box-shadow:0 0 24px rgba(255,54,33,0.3);">
+                    Start Analysis
+                </a>
+                <a href="?page=Transpiler" target="_self"
+                   style="display:inline-block;background:rgba(255,255,255,0.05);color:#f1f5f9;
+                          font-weight:600;font-size:14px;padding:12px 28px;border-radius:9px;
+                          text-decoration:none;border:1px solid rgba(255,255,255,0.1);">
+                    Browse Transpiler
+                </a>
+            </div>
+        </div>
+
+        <!-- Stats row -->
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:3rem;">
+            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
+                        border-radius:14px;padding:1.75rem;text-align:center;backdrop-filter:blur(12px);">
+                <div style="font-size:2.75rem;font-weight:800;color:#FF3621;
+                            font-family:'JetBrains Mono',monospace;line-height:1;">36</div>
+                <div style="font-size:13px;font-weight:600;color:#94a3b8;margin-top:8px;
+                            text-transform:uppercase;letter-spacing:0.07em;">Source Technologies</div>
+                <div style="font-size:12px;color:#475569;margin-top:4px;">SQL · ETL · Workflow · Code</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
+                        border-radius:14px;padding:1.75rem;text-align:center;backdrop-filter:blur(12px);">
+                <div style="font-size:2.75rem;font-weight:800;color:#6366f1;
+                            font-family:'JetBrains Mono',monospace;line-height:1;">13</div>
+                <div style="font-size:13px;font-weight:600;color:#94a3b8;margin-top:8px;
+                            text-transform:uppercase;letter-spacing:0.07em;">Transpiler Dialects</div>
+                <div style="font-size:12px;color:#475569;margin-top:4px;">CLI · Custom engines · SSRS · Oozie</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
+                        border-radius:14px;padding:1.75rem;text-align:center;backdrop-filter:blur(12px);">
+                <div style="font-size:2.75rem;font-weight:800;color:#06b6d4;
+                            font-family:'JetBrains Mono',monospace;line-height:1;">100%</div>
+                <div style="font-size:13px;font-weight:600;color:#94a3b8;margin-top:8px;
+                            text-transform:uppercase;letter-spacing:0.07em;">Databricks Native</div>
+                <div style="font-size:12px;color:#475569;margin-top:4px;">Runs on Databricks Apps</div>
+            </div>
+        </div>
+
+        <!-- Feature cards -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:3rem;">
+
+            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
+                        border-radius:16px;padding:2rem;backdrop-filter:blur(12px);">
+                <div style="width:40px;height:40px;background:rgba(255,54,33,0.1);
+                            border:1px solid rgba(255,54,33,0.2);border-radius:10px;
+                            display:flex;align-items:center;justify-content:center;margin-bottom:1.25rem;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FF3621" stroke-width="2">
+                        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+                    </svg>
+                </div>
+                <div style="font-size:17px;font-weight:700;color:#fff;margin-bottom:0.6rem;">Code Analyzer</div>
+                <div style="font-size:14px;color:#94a3b8;line-height:1.65;margin-bottom:1.25rem;">
+                    Upload source files and receive a full migration-readiness report —
+                    object inventory, function usage, SQL category breakdown, and complexity scoring
+                    across 36 technologies.
+                </div>
+                <a href="?page=Analyzer" target="_self"
+                   style="font-size:13px;font-weight:600;color:#FF3621;text-decoration:none;">
+                    Open Analyzer &rarr;
+                </a>
+            </div>
+
+            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
+                        border-radius:16px;padding:2rem;backdrop-filter:blur(12px);">
+                <div style="width:40px;height:40px;background:rgba(99,102,241,0.1);
+                            border:1px solid rgba(99,102,241,0.2);border-radius:10px;
+                            display:flex;align-items:center;justify-content:center;margin-bottom:1.25rem;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2">
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                    </svg>
+                </div>
+                <div style="font-size:17px;font-weight:700;color:#fff;margin-bottom:0.6rem;">Code Transpiler</div>
+                <div style="font-size:14px;color:#94a3b8;line-height:1.65;margin-bottom:1.25rem;">
+                    Convert HiveSQL, SSIS, SSRS, Oozie workflows, and 9 other dialects to
+                    Databricks SQL, PySpark notebooks, or Jobs API JSON — with optional
+                    LLM-assisted refinement for complex statements.
+                </div>
+                <a href="?page=Transpiler" target="_self"
+                   style="font-size:13px;font-weight:600;color:#6366f1;text-decoration:none;">
+                    Open Transpiler &rarr;
+                </a>
+            </div>
+
+            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
+                        border-radius:16px;padding:2rem;backdrop-filter:blur(12px);">
+                <div style="width:40px;height:40px;background:rgba(6,182,212,0.1);
+                            border:1px solid rgba(6,182,212,0.2);border-radius:10px;
+                            display:flex;align-items:center;justify-content:center;margin-bottom:1.25rem;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2">
+                        <rect x="3" y="3" width="18" height="18" rx="2"/>
+                        <path d="M3 9h18M9 21V9"/>
+                    </svg>
+                </div>
+                <div style="font-size:17px;font-weight:700;color:#fff;margin-bottom:0.6rem;">Workspace Integration</div>
+                <div style="font-size:14px;color:#94a3b8;line-height:1.65;margin-bottom:1.25rem;">
+                    Browse and fetch files directly from your Databricks workspace.
+                    Push converted output back into workspace folders without leaving the app.
+                </div>
+                <a href="?page=Settings" target="_self"
+                   style="font-size:13px;font-weight:600;color:#06b6d4;text-decoration:none;">
+                    Configure &rarr;
+                </a>
+            </div>
+
+            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
+                        border-radius:16px;padding:2rem;backdrop-filter:blur(12px);">
+                <div style="width:40px;height:40px;background:rgba(251,191,36,0.1);
+                            border:1px solid rgba(251,191,36,0.2);border-radius:10px;
+                            display:flex;align-items:center;justify-content:center;margin-bottom:1.25rem;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2">
+                        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                        <path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>
+                    </svg>
+                </div>
+                <div style="font-size:17px;font-weight:700;color:#fff;margin-bottom:0.6rem;">LLM-Assisted Migration</div>
+                <div style="font-size:14px;color:#94a3b8;line-height:1.65;margin-bottom:1.25rem;">
+                    Connect any OpenAI-compatible endpoint — including Databricks model serving —
+                    to automatically refine complex SQL statements that rule-based transpilation
+                    cannot fully resolve.
+                </div>
+                <a href="?page=Settings" target="_self"
+                   style="font-size:13px;font-weight:600;color:#fbbf24;text-decoration:none;">
+                    Configure LLM &rarr;
+                </a>
+            </div>
+
+        </div>
+
+        <!-- Footer note -->
+        <div style="text-align:center;padding:1.5rem 0;border-top:1px solid rgba(255,255,255,0.06);">
+            <div style="font-size:12px;color:#334155;">
+                Built by Syren Cloud &nbsp;&middot;&nbsp; Powered by Databricks Labs Lakebridge
+                &nbsp;&middot;&nbsp;
+                <a href="?page=Docs" target="_self" style="color:#475569;text-decoration:none;">Documentation</a>
+            </div>
+        </div>
+
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PAGE — DOCS
+# ══════════════════════════════════════════════════════════════════════════════
+
+elif selected_page == "Docs":
 
     # ── Intro ─────────────────────────────────────────────────────────────────
     st.markdown("""
@@ -1598,7 +1769,7 @@ if selected_page == "Get Started":
                 <div style="font-size:0.7rem;font-weight:700;color:#94a3b8;letter-spacing:0.08em;
                             text-transform:uppercase;margin-bottom:0.3rem;">Step 1</div>
                 <div style="font-weight:700;color:#f1f5f9;margin-bottom:0.3rem;font-size:0.95rem;">
-                    🔍 Analyze
+                    Analyze
                 </div>
                 <div style="font-size:0.85rem;color:#94a3b8;line-height:1.6;">
                     Select your source technology, upload source files or use Databricks workspace folder files, and get a
@@ -1609,7 +1780,7 @@ if selected_page == "Get Started":
                 <div style="font-size:0.7rem;font-weight:700;color:#94a3b8;letter-spacing:0.08em;
                             text-transform:uppercase;margin-bottom:0.3rem;">Step 2</div>
                 <div style="font-weight:700;color:#f1f5f9;margin-bottom:0.3rem;font-size:0.95rem;">
-                    ⚡ Transpile
+                    Transpile
                 </div>
                 <div style="font-size:0.85rem;color:#94a3b8;line-height:1.6;">
                     Select your source dialect, upload files either locally or from your Databricks workspace, and download Databricks-compatible
@@ -1620,7 +1791,7 @@ if selected_page == "Get Started":
                 <div style="font-size:0.7rem;font-weight:700;color:#94a3b8;letter-spacing:0.08em;
                             text-transform:uppercase;margin-bottom:0.3rem;">First time?</div>
                 <div style="font-weight:700;color:#f1f5f9;margin-bottom:0.3rem;font-size:0.95rem;">
-                    ⚙️ Configure
+                    Configure
                 </div>
                 <div style="font-size:0.85rem;color:#94a3b8;line-height:1.6;">
                     If running locally, go to <strong>Settings</strong> and enter your Databricks
@@ -1705,7 +1876,7 @@ if selected_page == "Get Started":
         st.markdown(f"""
         <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:1rem 1.25rem;">
             <div style="font-size:0.68rem;font-weight:700;color:#94a3b8;letter-spacing:0.1em;
-                        text-transform:uppercase;margin-bottom:0.6rem;">🗄️ SQL ({len(sql_techs)})</div>
+                        text-transform:uppercase;margin-bottom:0.6rem;">SQL ({len(sql_techs)})</div>
             <ul style="list-style:none;padding:0;margin:0;line-height:1.7;">{_tech_list(sql_techs)}</ul>
         </div>""", unsafe_allow_html=True)
 
@@ -1713,7 +1884,7 @@ if selected_page == "Get Started":
         st.markdown(f"""
         <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:1rem 1.25rem;">
             <div style="font-size:0.68rem;font-weight:700;color:#94a3b8;letter-spacing:0.1em;
-                        text-transform:uppercase;margin-bottom:0.6rem;">🔄 ETL ({len(etl_techs)})</div>
+                        text-transform:uppercase;margin-bottom:0.6rem;">ETL ({len(etl_techs)})</div>
             <ul style="list-style:none;padding:0;margin:0;line-height:1.7;">{_tech_list(etl_techs)}</ul>
         </div>""", unsafe_allow_html=True)
 
@@ -1721,7 +1892,7 @@ if selected_page == "Get Started":
         st.markdown(f"""
         <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:1rem 1.25rem;">
             <div style="font-size:0.68rem;font-weight:700;color:#94a3b8;letter-spacing:0.1em;
-                        text-transform:uppercase;margin-bottom:0.6rem;">💻 Code ({len(code_techs)})</div>
+                        text-transform:uppercase;margin-bottom:0.6rem;">Code ({len(code_techs)})</div>
             <ul style="list-style:none;padding:0;margin:0;line-height:1.7;">{_tech_list(code_techs)}</ul>
         </div>""", unsafe_allow_html=True)
 
@@ -1731,7 +1902,7 @@ if selected_page == "Get Started":
     st.markdown(
         '<div style="background:rgba(6,182,212,0.06);border:1px solid rgba(6,182,212,0.2);border-radius:8px;'
         'padding:0.8rem 1.1rem;font-size:0.86rem;color:#67e8f9;">'
-        '💡 <strong style="color:#f1f5f9;">PySpark &amp; Spark Classic → Serverless</strong> '
+        '<strong style="color:#f1f5f9;">PySpark &amp; Spark Classic → Serverless</strong> '
         'migrations are handled by the Syren Server to Serverless Migration Platform — '
         '<a href="https://syren-s2s-platform-204242957656703.3.azure.databricksapps.com/#home" '
         'target="_blank" style="color:#2563eb;font-weight:600;">Open platform →</a>'
@@ -1765,7 +1936,7 @@ elif selected_page == "Analyzer":
         """, unsafe_allow_html=True)
 
         tech_options_display = [
-            f"{CATEGORY_ICON.get(cat, '📦')}  {name}"
+            f"{CATEGORY_ICON.get(cat, cat)}  {name}"
             for _, name, cat in TECHNOLOGIES
         ]
 
@@ -1785,7 +1956,7 @@ elif selected_page == "Analyzer":
         st.markdown(f"""
         <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:1rem 1.25rem;margin-top:0.75rem;">
             <div style="font-weight:700;color:#f1f5f9;font-size:1rem;margin-bottom:0.2rem;">
-                {CATEGORY_ICON.get(tech_cat,'📦')} {tech_name}
+                {tech_name}
             </div>
             <div style="font-size:0.78rem;color:#9ca3af;margin-bottom:0.6rem;">
                 Category: {tech_cat} &nbsp;·&nbsp; Option #{tech_num}
@@ -1814,7 +1985,7 @@ elif selected_page == "Analyzer":
         </div>
         """, unsafe_allow_html=True)
 
-        tab1, tab2 = st.tabs(["📂 Upload Files", "☁️ Databricks Workspace"])
+        tab1, tab2 = st.tabs(["Upload Files", "Databricks Workspace"])
 
         uploaded_files = []
         is_zip = False
@@ -1849,7 +2020,7 @@ elif selected_page == "Analyzer":
 
                 with st.expander("View uploaded files"):
                     for f in uploaded_files:
-                        st.markdown(f"📄 `{f.name}`")
+                        st.markdown(f"`{f.name}`")
 
                 st.session_state["source_mode"] = "upload"
             else:
@@ -1861,7 +2032,7 @@ elif selected_page == "Analyzer":
         with tab2:
             from modules.databricks_service import DatabricksClient
 
-            st.markdown("#### 🔗 Browse Workspace")
+            st.markdown("#### Browse Workspace")
 
             try:
                 dbx = DatabricksClient.from_app_context()
@@ -1908,13 +2079,13 @@ elif selected_page == "Analyzer":
                     parent = "/".join(current_path.rstrip("/").split("/")[:-1]) or "/"
                     back_col, home_col = st.columns([1, 1], gap="small")
                     with back_col:
-                        if st.button("⬅️ Back", key="ws_back"):
+                        if st.button("Back", key="ws_back"):
                             st.session_state["ws_path"] = parent
                             st.session_state.pop("ws_items", None)
                             st.session_state.pop("last_loaded_path", None)
                             st.rerun()
                     with home_col:
-                        if st.button("🏠 Home", key="ws_home"):
+                        if st.button("Home", key="ws_home"):
                             st.session_state["ws_path"] = "/"
                             st.session_state.pop("ws_items", None)
                             st.session_state.pop("last_loaded_path", None)
@@ -1932,14 +2103,14 @@ elif selected_page == "Analyzer":
                         # FOLDERS
                         # ─────────────────────────────────────────
                         if dirs:
-                            st.markdown("##### 📁 Folders")
+                            st.markdown("##### Folders")
 
                             for obj in dirs:
                                 path = obj.get("path")
                                 name = path.rstrip("/").split("/")[-1]
                                 button_key = make_widget_key("dir", path)
 
-                                if st.button(f"📁 {name}", key=button_key):
+                                if st.button(f"{name}", key=button_key):
                                     st.session_state["ws_path"] = path
                                     st.session_state.pop("ws_items", None)
                                     st.session_state.pop("last_loaded_path", None)
@@ -1947,7 +2118,7 @@ elif selected_page == "Analyzer":
 
                     # ─────────────────── files ──────────────────────
                         if files:
-                            st.markdown("##### 📄 Select files")
+                            st.markdown("##### Select files")
 
                             selected_paths = set(st.session_state.get("ws_selected_files", []))
                             for obj in files:
@@ -1985,14 +2156,14 @@ elif selected_page == "Analyzer":
             st.markdown("""
             <div style="background:rgba(255,255,255,0.03);border:2px dashed rgba(255,255,255,0.08);border-radius:12px;
                         padding:2rem;text-align:center;color:#9ca3af;">
-                <div style="font-size:2rem;">📂</div>
+                <div style="font-size:2rem;">&#128193;</div>
                 <div>No files selected yet</div>
             </div>
             """, unsafe_allow_html=True)
 
         st.markdown("""
         <div style="font-size:0.78rem;color:#9ca3af;margin-top:0.75rem;">
-            💡 Upload files or browse Databricks workspace
+            Upload files or browse Databricks workspace
         </div>
         """, unsafe_allow_html=True)
 
@@ -2002,7 +2173,7 @@ elif selected_page == "Analyzer":
     _, btn_col, _ = st.columns([2, 1, 2])
     with btn_col:
         run_clicked = st.button(
-            "🚀  Analyse",
+            "Analyse",
             width='stretch',
             disabled=not bool(uploaded_files or st.session_state.get("ws_selected_files")),
             key="run_analyze",
@@ -2030,7 +2201,7 @@ elif selected_page == "Analyzer":
                         st.error("No workspace files selected")
                         st.stop()
 
-                    st.write(f"☁️ Preparing **{len(ws_files)}** workspace file(s)…")
+                    st.write(f"Preparing **{len(ws_files)}** workspace file(s)…")
                     src_dir = fetch_workspace_files_to_local(ws_files)
 
                 elif source_mode == "upload":
@@ -2038,7 +2209,7 @@ elif selected_page == "Analyzer":
                         st.error("No uploaded files found")
                         st.stop()
 
-                    st.write(f"📂 Preparing **{len(uploaded_files)}** file(s)…")
+                    st.write(f"Preparing **{len(uploaded_files)}** file(s)…")
                     src_dir = save_uploaded_files(uploaded_files, is_zip)
 
                 else:
@@ -2059,7 +2230,7 @@ elif selected_page == "Analyzer":
                 out_dir = tempfile.mkdtemp(prefix="lb_out_")
                 out_file = os.path.join(out_dir, output_filename)
 
-                st.write(f"⚙️ Analyzing as **{tech_name}** (#{tech_num})…")
+                st.write(f"Analyzing as **{tech_name}** (#{tech_num})…")
                 t0 = time.time()
                 ok, stdout, stderr = run_lakebridge(src_dir, out_file, tech_num)
                 elapsed = time.time() - t0
@@ -2074,14 +2245,14 @@ elif selected_page == "Analyzer":
                     status.update(label="⚠️ Finished with issues — see log below", state="error", expanded=True)
 
             if stdout:
-                with st.expander("📋 Full analysis log"):
+                with st.expander("Full analysis log"):
                     log_container = st.container(height=400)
                     with log_container:
                         st.markdown("<div class='output-block'>", unsafe_allow_html=True)
                         st.code(stdout, language="text")
                         st.markdown("</div>", unsafe_allow_html=True)
             if stderr and not ok:
-                with st.expander("❗ Errors / warnings"):
+                with st.expander("Errors / warnings"):
                     error_container = st.container(height=400)
                     with error_container:
                         st.markdown("<div class='output-block'>", unsafe_allow_html=True)
@@ -2098,18 +2269,18 @@ elif selected_page == "Analyzer":
                 st.markdown("<hr class='section-sep'>", unsafe_allow_html=True)
                 st.markdown("""
                 <div class="results-header">
-                    <div class="results-title">📊 Analysis Results <span class="success-pill">Ready</span></div>
+                    <div class="results-title">Analysis Results <span class="success-pill">Ready</span></div>
                 </div>
                 """, unsafe_allow_html=True)
 
                 metrics = extract_metrics(main_sheets)
                 if metrics:
                     icons = {
-                        "Files Analyzed": "📁",
-                        "SQL Programs": "📜",
-                        "Unique Functions": "⚡",
-                        "Referenced Objects": "🔗",
-                        "Transformations": "🔄",
+                        "Files Analyzed": "",
+                        "SQL Programs": "",
+                        "Unique Functions": "",
+                        "Referenced Objects": "",
+                        "Transformations": "",
                     }
                     items = list(metrics.items())
                     cols = st.columns(min(len(items), 4))
@@ -2117,7 +2288,7 @@ elif selected_page == "Analyzer":
                         with col:
                             st.markdown(f"""
                             <div class="metric-card">
-                                <div class="metric-icon">{icons.get(label, '📊')}</div>
+                                <div class="metric-icon">{icons.get(label, '')}</div>
                                 <div class="metric-val">{val:,}</div>
                                 <div class="metric-lbl">{label}</div>
                             </div>
@@ -2131,19 +2302,19 @@ elif selected_page == "Analyzer":
                 if fn_chart and cat_chart:
                     ch1, ch2 = st.columns(2) 
                     with ch1 :
-                        st.markdown("**⚡ Top Functions by Usage**")
+                        st.markdown("**Top Functions by Usage**")
                         st.altair_chart(fn_chart, width='stretch')
                     with ch2:
-                        st.markdown("**🗂️ SQL Script Categories**")
+                        st.markdown("**SQL Script Categories**")
                         st.altair_chart(cat_chart, width='stretch')
                 # Case 2: only function chart
                 elif fn_chart:
-                    st.markdown("**⚡ Top Functions by Usage**")
+                    st.markdown("**Top Functions by Usage**")
                     st.altair_chart(fn_chart, width='stretch')
 
                 # Case 3: only category chart
                 elif cat_chart:
-                    st.markdown("**🗂️ SQL Script Categories**")
+                    st.markdown("**SQL Script Categories**")
                     st.altair_chart(cat_chart, width='stretch')
                 st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
                 dl_cols = st.columns(2) if sql_reports else st.columns([1, 2])
@@ -2151,7 +2322,7 @@ elif selected_page == "Analyzer":
                 with dl_cols[0]:
                     with open(out_file, "rb") as fh:
                         st.download_button(
-                            label="📥  Download Main Report",
+                            label="Download Main Report",
                             data=fh.read(),
                             file_name=output_filename,
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -2163,7 +2334,7 @@ elif selected_page == "Analyzer":
                     with dl_cols[1]:
                         with open(str(sql_reports[0]), "rb") as fh:
                             st.download_button(
-                                label="📥  Download SQL Sub-Report",
+                                label="Download SQL Sub-Report",
                                 data=fh.read(),
                                 file_name=sql_reports[0].name,
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -2172,7 +2343,7 @@ elif selected_page == "Analyzer":
                             )
 
                 st.markdown("<div style='height:1.25rem'></div>", unsafe_allow_html=True)
-                st.markdown("**📋 Sheet Explorer**")
+                st.markdown("**Sheet Explorer**")
                 sheet_names = list(main_sheets.keys())
                 if sheet_names:
                     tabs = st.tabs(sheet_names)
@@ -2181,7 +2352,7 @@ elif selected_page == "Analyzer":
                             df = main_sheets[name]
                             if df.empty:
                                 st.markdown(
-                                    "<div class='empty-state'><div class='icon'>🗃️</div>"
+                                    "<div class='empty-state'><p>No data rows.</p>"
                                     "<p>This sheet has no data rows.</p></div>",
                                     unsafe_allow_html=True,
                                 )
@@ -2208,7 +2379,7 @@ elif selected_page == "Analyzer":
 
                 if sql_reports:
                     st.markdown("<hr class='section-sep'>", unsafe_allow_html=True)
-                    st.markdown("**📋 Embedded SQL Report — Sheet Explorer**")
+                    st.markdown("**Embedded SQL Report — Sheet Explorer**")
                     sql_sheets = read_excel_sheets(str(sql_reports[0]))
                     sql_names = list(sql_sheets.keys())
                     if sql_names:
@@ -2266,7 +2437,7 @@ elif selected_page == "Transpiler":
     st.markdown(
         '<div style="background:rgba(99,102,241,0.08);border:1px solid #93c5fd;border-radius:8px;'
         'padding:0.65rem 1rem;margin-bottom:1rem;font-size:0.83rem;color:#93c5fd;">'
-        '💡 <strong>PySpark & Spark Classic → Serverless migration</strong> is available through '
+        '<strong>PySpark & Spark Classic → Serverless migration</strong> is available through '
         'the <strong>Syren Server to Serverless Migration Platform</strong>. '
         '<a href="https://syren-s2s-platform-204242957656703.3.azure.databricksapps.com/#home" '
         'target="_blank" style="color:#1d4ed8;font-weight:600;">Learn more →</a>'
@@ -2300,25 +2471,25 @@ elif selected_page == "Transpiler":
             _engine_badge = (
                 '<span style="font-size:0.72rem;background:rgba(251,191,36,0.06);color:#fbbf24;'
                 'border:1px solid rgba(251,191,36,0.2);border-radius:6px;padding:2px 7px;font-weight:600;">'
-                '🔁 Built-in engine (oozie_converter) — outputs Databricks Workflow JSON</span>'
+                'Built-in engine (oozie_converter) — outputs Databricks Workflow JSON</span>'
             )
         elif dialect_info.get("ssrs"):
             _engine_badge = (
                 '<span style="font-size:0.72rem;background:rgba(251,191,36,0.06);color:#fbbf24;'
                 'border:1px solid rgba(251,191,36,0.2);border-radius:6px;padding:2px 7px;font-weight:600;">'
-                '📊 Built-in engine (ssrs_converter) — outputs SQL notebooks + assessment JSON</span>'
+                'Built-in engine (ssrs_converter) — outputs SQL notebooks + assessment JSON</span>'
             )
         elif dialect_info.get("custom"):
             _engine_badge = (
                 '<span style="font-size:0.72rem;background:rgba(251,191,36,0.06);color:#fbbf24;'
                 'border:1px solid rgba(251,191,36,0.2);border-radius:6px;padding:2px 7px;font-weight:600;">'
-                '⚙️ Built-in engine (sqlglot) — no Databricks CLI needed</span>'
+                'Built-in engine (sqlglot) — no Databricks CLI needed</span>'
             )
         elif dialect_info.get("sparksql_only"):
             _engine_badge = (
                 '<span style="font-size:0.72rem;background:#e0f2fe;color:#0369a1;'
                 'border:1px solid #7dd3fc;border-radius:6px;padding:2px 7px;font-weight:600;">'
-                '⚡ BladeBridge — SparkSQL output only</span>'
+                'BladeBridge — SparkSQL output only</span>'
             )
         else:
             _engine_badge = ""
@@ -2340,7 +2511,7 @@ elif selected_page == "Transpiler":
             st.markdown(
                 '<div style="background:rgba(6,182,212,0.06);border:1px solid rgba(6,182,212,0.2);border-radius:8px;'
                 'padding:0.6rem 1rem;font-size:0.82rem;color:#67e8f9;font-weight:500;">'
-                '📋 Output: <strong>Databricks Workflow JSON</strong> — deployable via '
+                'Output: <strong>Databricks Workflow JSON</strong> — deployable via '
                 '<code>/api/2.1/jobs ,please use button below - Create Databricks Workflow</code></div>',
                 unsafe_allow_html=True,
             )
@@ -2351,7 +2522,7 @@ elif selected_page == "Transpiler":
             st.markdown(
                 '<div style="background:rgba(6,182,212,0.06);border:1px solid rgba(6,182,212,0.2);border-radius:8px;'
                 'padding:0.6rem 1rem;font-size:0.82rem;color:#67e8f9;font-weight:500;">'
-                '📊 Output: <strong>SQL Notebooks + Assessment JSON</strong> — '
+                'Output: <strong>SQL Notebooks + Assessment JSON</strong> — '
                 'one .sql notebook and one assessment.json per report</div>',
                 unsafe_allow_html=True,
             )
@@ -2362,7 +2533,7 @@ elif selected_page == "Transpiler":
             st.markdown(
                 '<div style="background:rgba(6,182,212,0.06);border:1px solid rgba(6,182,212,0.2);border-radius:8px;'
                 'padding:0.6rem 1rem;font-size:0.82rem;color:#67e8f9;font-weight:500;">'
-                '⚡ Output: <strong>SparkSQL</strong> — SSIS packages convert to SparkSQL only '
+                'Output: <strong>SparkSQL</strong> — SSIS packages convert to SparkSQL only '
                 '(BladeBridge limitation)</div>',
                 unsafe_allow_html=True,
             )
@@ -2378,7 +2549,7 @@ elif selected_page == "Transpiler":
             st.markdown(
                 '<div style="background:rgba(6,182,212,0.06);border:1px solid rgba(6,182,212,0.2);border-radius:8px;'
                 'padding:0.6rem 1rem;font-size:0.82rem;color:#67e8f9;font-weight:500;">'
-                '🗄️ SQL output uses <strong>Databricks SQL dialect</strong> — '
+                'SQL output uses <strong>Databricks SQL dialect</strong> — '
                 'runs directly on Databricks SQL Warehouses &amp; clusters</div>',
                 unsafe_allow_html=True,
             )
@@ -2393,7 +2564,7 @@ elif selected_page == "Transpiler":
 
         # Optional settings (not applicable for Oozie, SSRS, or sparksql_only)
         if not dialect_info.get("oozie") and not dialect_info.get("sparksql_only") and not dialect_info.get("ssrs"):
-            with st.expander("⚙️ Advanced options", expanded=False):
+            with st.expander("Advanced options", expanded=False):
                 catalog_name = st.text_input(
                     "Catalog name (optional)",
                     value="",
@@ -2434,7 +2605,7 @@ elif selected_page == "Transpiler":
         if "tp_last_loaded_path" not in st.session_state:
             st.session_state["tp_last_loaded_path"] = None
 
-        tab1, tab2 = st.tabs(["📂 Upload Files", "☁️ Databricks Workspace"])
+        tab1, tab2 = st.tabs(["Upload Files", "Databricks Workspace"])
 
         tp_files = []
 
@@ -2473,19 +2644,19 @@ elif selected_page == "Transpiler":
                 <div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.2);border-radius:10px;
                             padding:0.85rem 1.1rem;margin-top:0.5rem;">
                     <div style="font-weight:700;color:#4ade80;font-size:0.95rem;">
-                        ✅ {len(tp_files)} file(s) ready · {tp_total_kb:.1f} KB
+                        {len(tp_files)} file(s) ready · {tp_total_kb:.1f} KB
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
                 with st.expander("View uploaded files", expanded=False):
                     for f in tp_files:
-                        st.markdown(f"📄 `{f.name}` &nbsp; <span style='color:#9ca3af;font-size:0.8rem'>{f.size:,} bytes</span>", unsafe_allow_html=True)
+                        st.markdown(f"`{f.name}` &nbsp; <span style='color:#9ca3af;font-size:0.8rem'>{f.size:,} bytes</span>", unsafe_allow_html=True)
                 st.session_state["tp_source_mode"] = "upload"
             else:
                 st.markdown("""
                 <div style="background:rgba(255,255,255,0.03);border:2px dashed rgba(255,255,255,0.08);border-radius:12px;
                             padding:2rem 1.5rem;text-align:center;margin-top:0.5rem;color:#9ca3af;">
-                    <div style="font-size:2rem;margin-bottom:0.5rem;">📂</div>
+                    <div style="font-size:2rem;margin-bottom:0.5rem;">&#128193;</div>
                     <div style="font-weight:600;color:#94a3b8;margin-bottom:0.25rem;">No files selected yet</div>
                     <div style="font-size:0.82rem;">Upload source files to begin transpilation</div>
                 </div>
@@ -2494,7 +2665,7 @@ elif selected_page == "Transpiler":
         with tab2:
             from modules.databricks_service import DatabricksClient
 
-            st.markdown("#### 🔗 Browse Workspace")
+            st.markdown("#### Browse Workspace")
 
             try:
                 dbx = DatabricksClient.from_app_context()
@@ -2520,13 +2691,13 @@ elif selected_page == "Transpiler":
                     parent = "/".join(current_path.rstrip("/").split("/")[:-1]) or "/"
                     back_col, home_col = st.columns([1, 1], gap="small")
                     with back_col:
-                        if st.button("⬅️ Back", key="tp_back"):
+                        if st.button("Back", key="tp_back"):
                             st.session_state["tp_ws_path"] = parent
                             st.session_state.pop("tp_ws_items", None)
                             st.session_state.pop("tp_last_loaded_path", None)
                             st.rerun()
                     with home_col:
-                        if st.button("🏠 Home", key="tp_home"):
+                        if st.button("Home", key="tp_home"):
                             st.session_state["tp_ws_path"] = "/"
                             st.session_state.pop("tp_ws_items", None)
                             st.session_state.pop("tp_last_loaded_path", None)
@@ -2541,19 +2712,19 @@ elif selected_page == "Transpiler":
 
                     with container:
                         if dirs:
-                            st.markdown("##### 📁 Folders")
+                            st.markdown("##### Folders")
                             for obj in dirs:
                                 path = obj.get("path")
                                 name = path.rstrip("/").split("/")[-1]
                                 button_key = make_widget_key("tp_dir", path)
-                                if st.button(f"📁 {name}", key=button_key):
+                                if st.button(f"{name}", key=button_key):
                                     st.session_state["tp_ws_path"] = path
                                     st.session_state.pop("tp_ws_items", None)
                                     st.session_state.pop("tp_last_loaded_path", None)
                                     st.rerun()
 
                         if files:
-                            st.markdown("##### 📄 Select files")
+                            st.markdown("##### Select files")
                             selected_paths = set(st.session_state.get("tp_ws_selected_files", []))
                             for obj in files:
                                 path = obj.get("path")
@@ -2581,7 +2752,7 @@ elif selected_page == "Transpiler":
 
         st.markdown("""
         <div style="font-size:0.78rem;color:#9ca3af;margin-top:0.75rem;line-height:1.5;">
-            💡 <strong>Tip:</strong> Use <em>ZIP archive</em> mode to upload an entire
+            <strong>Tip:</strong> Use <em>ZIP archive</em> mode to upload an entire
             source project folder at once.
         </div>
         """, unsafe_allow_html=True)
@@ -2595,7 +2766,7 @@ elif selected_page == "Transpiler":
     _, tp_btn_col, _ = st.columns([2, 1, 2])
     with tp_btn_col:
         tp_run = st.button(
-            "⚡  Transpile Code",
+            "Transpile Code",
             width="content",
             disabled=not tp_has_source,
             key="run_transpile",
@@ -2616,11 +2787,11 @@ elif selected_page == "Transpiler":
         try:
             with st.status("Transpiling…", expanded=True) as tp_status:
                 if tp_files:
-                    st.write(f"📂 Preparing **{len(tp_files)}** file(s)…")
+                    st.write(f"Preparing **{len(tp_files)}** file(s)…")
                     tp_src_dir = save_uploaded_files(tp_files, tp_is_zip)
                 else:
                     tp_ws_selected_files = st.session_state.get("tp_ws_selected_files", [])
-                    st.write(f"☁️ Preparing **{len(tp_ws_selected_files)}** workspace file(s)…")
+                    st.write(f"Preparing **{len(tp_ws_selected_files)}** workspace file(s)…")
                     tp_src_dir = fetch_workspace_files_to_local(tp_ws_selected_files)
 
                 n_src, b_src = count_files(tp_src_dir)
@@ -2629,7 +2800,7 @@ elif selected_page == "Transpiler":
                 tp_out_dir = tempfile.mkdtemp(prefix="lb_tp_out_")
                 tp_err_file = os.path.join(tp_out_dir, "transpile_errors.log")
 
-                st.write(f"⚡ Transpiling **{selected_dialect_name}** → **{selected_target_label.split('(')[0].strip()}**…")
+                st.write(f"Transpiling **{selected_dialect_name}** → **{selected_target_label.split('(')[0].strip()}**…")
                 t0 = time.time()
                 if dialect_info.get("oozie"):
                     # Built-in Oozie → Databricks Workflow JSON converter
@@ -2641,9 +2812,9 @@ elif selected_page == "Transpiler":
                     st.session_state["tp_oozie_links"] = _oozie_links
                     for lk in _oozie_links:
                         if lk["workflow"]:
-                            st.write(f"✅ **{lk['coordinator']}** → linked to **{lk['workflow']}** via `run_job_task`")
+                            st.write(f"**{lk['coordinator']}** → linked to **{lk['workflow']}** via `run_job_task`")
                         else:
-                            st.write(f"⚠️ **{lk['coordinator']}** → no workflow matched — add `run_job_task` manually")
+                            st.write(f"**{lk['coordinator']}** → no workflow matched — add `run_job_task` manually")
                 elif dialect_info.get("ssrs"):
                     # Built-in SSRS → SQL Notebooks + Assessment JSON converter
                     tp_ok, tp_stdout, tp_stderr, _ssrs_results = run_ssrs_converter(
@@ -2659,7 +2830,7 @@ elif selected_page == "Transpiler":
                         if a.get("auto_convertible")
                     )
                     st.write(
-                        f"📊 **{n_as}** report(s) assessed · "
+                        f"**{n_as}** report(s) assessed · "
                         f"**{auto_conv}/{n_as}** auto-convertible · "
                         f"**{n_nb}** SQL notebook(s) generated"
                     )
@@ -2728,14 +2899,14 @@ elif selected_page == "Transpiler":
 
             # ── Logs ─────────────────────────────────────────────────────────
             if tp_stdout:
-                with st.expander("📋 Transpiler output log"):
+                with st.expander("Transpiler output log"):
                     tp_log_container = st.container(height=400)
                     with tp_log_container:
                         st.markdown("<div class='output-block'>", unsafe_allow_html=True)
                         st.code(tp_stdout, language="text")
                         st.markdown("</div>", unsafe_allow_html=True)
             if tp_stderr and not tp_ok:
-                with st.expander("❗ Errors / warnings"):
+                with st.expander("Errors / warnings"):
                     tp_error_container = st.container(height=400)
                     with tp_error_container:
                         st.markdown("<div class='output-block'>", unsafe_allow_html=True)
@@ -2750,13 +2921,13 @@ elif selected_page == "Transpiler":
                 if dialect_info.get("oozie"):
                     oozie_links = st.session_state.get("tp_oozie_links", [])
                     if oozie_links:
-                        st.markdown("**🔗 Coordinator → Workflow Links**")
+                        st.markdown("**Coordinator → Workflow Links**")
                         for lk in oozie_links:
                             if lk["workflow"]:
                                 st.success(f"{lk['coordinator']} → linked to **{lk['workflow']}** via `run_job_task`")
                             else:
                                 st.warning(f"{lk['coordinator']} → no workflow matched — add `run_job_task` manually")
-                    st.markdown("⚠️ **Oozie Conversion Notes**")
+                    st.markdown("**Oozie Conversion Notes**")
                     with st.expander("ℹ️ View details"):
                         st.markdown("""
                     - **Workflow jobs** are created as independent Databricks jobs with a full task graph.
@@ -2779,12 +2950,12 @@ elif selected_page == "Transpiler":
                         st.markdown(
                             f'<div style="background:rgba(6,182,212,0.06);border:1px solid rgba(6,182,212,0.2);border-radius:8px;'
                             f'padding:0.75rem 1rem;margin-bottom:0.75rem;font-size:0.88rem;color:#67e8f9;">'
-                            f'📊 <strong>{len(assessments)}</strong> report(s) assessed · '
+                            f'<strong>{len(assessments)}</strong> report(s) assessed · '
                             f'<strong>{n_auto}/{len(assessments)}</strong> auto-convertible · '
                             f'<strong>{len(notebooks)}</strong> SQL notebook(s) generated</div>',
                             unsafe_allow_html=True,
                         )
-                    st.markdown("⚠️ **SSRS Conversion Notes**")
+                    st.markdown("**SSRS Conversion Notes**")
                     with st.expander("ℹ️ View details"):
                         st.markdown("""
                     - **SQL Notebooks** (`.sql`) contain one SQL cell per dataset — run them directly on a Databricks SQL Warehouse.
@@ -2800,7 +2971,7 @@ elif selected_page == "Transpiler":
                 st.markdown("""
                 <div class="results-header">
                     <div class="results-title">
-                        ⚡ Transpiled Output <span class="success-pill">Ready</span>
+                        Transpiled Output <span class="success-pill">Ready</span>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -2815,7 +2986,7 @@ elif selected_page == "Transpiler":
                 dl_col, info_col = st.columns([1, 2])
                 with dl_col:
                     st.download_button(
-                        label="📥  Download All Output Files",
+                        label="Download All Output Files",
                         data=zip_bytes,
                         file_name=zip_name,
                         mime="application/zip",
@@ -2825,7 +2996,7 @@ elif selected_page == "Transpiler":
                 with info_col:
                     st.markdown(f"""
                     <div class="info-box">
-                        <strong>📦 {zip_name}</strong>
+                        <strong>{zip_name}</strong>
                         <p>{n_out} converted file(s) · {b_out/1024:.1f} KB total</p>
                     </div>
                     """, unsafe_allow_html=True)
@@ -2843,7 +3014,7 @@ elif selected_page == "Transpiler":
                     upload_dest = "/" + upload_dest
                     st.session_state["tp_upload_dest"] = upload_dest
 
-                if st.button("📤  Upload All Output Files to Databricks", key="tp_upload_output", width='stretch'):
+                if st.button("Upload All Output Files to Databricks", key="tp_upload_output", width='stretch'):
                     try:
                         ok, upload_errors = upload_directory_to_workspace(tp_out_dir, upload_dest)
                         if ok:
@@ -2856,7 +3027,7 @@ elif selected_page == "Transpiler":
                         st.error(f"Upload error: {e}")
 
                 # File tree
-                st.markdown("**📂 Output File Tree**")
+                st.markdown("**Output File Tree**")
                 tree_html, _, _ = build_file_tree_html(tp_out_dir)
                 st.markdown(f'<div class="file-tree">{tree_html}</div>', unsafe_allow_html=True)
 
@@ -2868,7 +3039,7 @@ elif selected_page == "Transpiler":
                     key=lambda p: str(p)
                 )
                 if output_files:
-                    st.markdown("**👁️ File Preview**")
+                    st.markdown("**File Preview**")
                     preview_tabs = st.tabs([p.name for p in output_files[:20]])
                     for tab, fp in zip(preview_tabs, output_files[:20]):
                         with tab:
@@ -2886,7 +3057,7 @@ elif selected_page == "Transpiler":
                 if os.path.exists(tp_err_file):
                     err_content = Path(tp_err_file).read_text(encoding="utf-8", errors="replace").strip()
                     if err_content:
-                        with st.expander("⚠️ Transpilation error log", expanded=False):
+                        with st.expander("Transpilation error log", expanded=False):
                             st.code(err_content, language="text")
                     else:
                         st.success("✅ No transpilation errors logged.")
@@ -2935,7 +3106,7 @@ elif selected_page == "Settings":
         st.markdown(
             f'<div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.2);border-radius:8px;'
             f'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#4ade80;">'
-            f'✅ <strong>Ready</strong> — workspace <code>{db_host_env}</code> and token are '
+            f'<strong>Ready</strong> — workspace <code>{db_host_env}</code> and token are '
             f'already present in the environment. '
             f'You do not need to fill anything in below. '
             f'Use the fields only if you want to override for this session.'
@@ -2946,7 +3117,7 @@ elif selected_page == "Settings":
         st.markdown(
             f'<div style="background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.2);border-radius:8px;'
             f'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#fbbf24;">'
-            f'⚠️ <strong>Workspace URL detected</strong> (<code>{db_host_env}</code>) but no token '
+            f'<strong>Workspace URL detected</strong> (<code>{db_host_env}</code>) but no token '
             f'found in environment. Enter a token below to continue.'
             f'</div>',
             unsafe_allow_html=True,
@@ -2955,7 +3126,7 @@ elif selected_page == "Settings":
         st.markdown(
             '<div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:8px;'
             'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#f87171;">'
-            '⚠️ <strong>No credentials detected.</strong> Enter your Databricks workspace URL and '
+            '<strong>No credentials detected.</strong> Enter your Databricks workspace URL and '
             'Personal Access Token below. The Analyzer and Transpiler require a connected workspace.<br><br>'
             '<strong>On Databricks Apps:</strong> this is handled automatically — no input needed.'
             '</div>',
@@ -2985,9 +3156,9 @@ elif selected_page == "Settings":
         help="Generate a token in Databricks → User Settings → Developer → Access Tokens.",
     )
     status_col1, status_col2, status_col3 = st.columns([1, 1, 1], gap="large")
-    save_clicked = status_col1.button("💾 Save connection", key="save_db_connection")
-    test_workspace_clicked = status_col2.button("🔍 Test workspace connection", key="test_workspace_connection")
-    clear_clicked = status_col3.button("🗑️ Clear workspace credentials", key="clear_db_connection")
+    save_clicked = status_col1.button("Save connection", key="save_db_connection")
+    test_workspace_clicked = status_col2.button("Test workspace connection", key="test_workspace_connection")
+    clear_clicked = status_col3.button("Clear workspace credentials", key="clear_db_connection")
     
     if clear_clicked:
         clear_databricks_credentials()
@@ -3045,7 +3216,7 @@ elif selected_page == "Settings":
         st.markdown(
             f'<div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.2);border-radius:8px;'
             f'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#4ade80;">'
-            f'✅ <strong>Ready</strong> — LLM endpoint <code>{llm_endpoint_env}</code> and API key are '
+            f'<strong>Ready</strong> — LLM endpoint <code>{llm_endpoint_env}</code> and API key are '
             f'already present in the environment. '
             f'You do not need to fill anything in below. '
             f'Use the fields only if you want to override for this session.'
@@ -3056,7 +3227,7 @@ elif selected_page == "Settings":
         st.markdown(
             f'<div style="background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.2);border-radius:8px;'
             f'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#fbbf24;">'
-            f'⚠️ <strong>LLM Endpoint detected</strong> (<code>{llm_endpoint_env}</code>) but no API key '
+            f'<strong>LLM Endpoint detected</strong> (<code>{llm_endpoint_env}</code>) but no API key '
             f'found in environment. Enter an API key below to continue.'
             f'</div>',
             unsafe_allow_html=True,
@@ -3065,7 +3236,7 @@ elif selected_page == "Settings":
         st.markdown(
             '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:8px;'
             'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#94a3b8;">'
-            'ℹ️ <strong>LLM credentials are optional.</strong> They are used for the LLM-powered '
+            '<strong>LLM credentials are optional.</strong> They are used for the LLM-powered '
             'transpiler (when enabled). If not provided, the standard transpiler will be used.<br><br>'
             '<strong>Supported providers:</strong> OpenAI, Azure OpenAI, Anthropic, Cohere, and other '
             'compatible LLM endpoints.'
@@ -3089,9 +3260,9 @@ elif selected_page == "Settings":
     )
 
     llm_col1, llm_col2, llm_col3 = st.columns([1, 1, 1], gap="large")
-    llm_save_clicked = llm_col1.button("💾 Save LLM connection", key="save_llm_connection")
-    llm_test_clicked = llm_col2.button("🔍 Test LLM connection", key="test_llm_connection")
-    llm_clear_clicked = llm_col3.button("🗑️ Clear LLM credentials", key="clear_llm_connection")
+    llm_save_clicked = llm_col1.button("Save LLM connection", key="save_llm_connection")
+    llm_test_clicked = llm_col2.button("Test LLM connection", key="test_llm_connection")
+    llm_clear_clicked = llm_col3.button("Clear LLM credentials", key="clear_llm_connection")
 
     if llm_clear_clicked:
         clear_llm_credentials()
