@@ -1790,7 +1790,7 @@ elif selected_page == "Analyzer":
             <div style="font-size:0.78rem;color:#9ca3af;margin-bottom:0.6rem;">
                 Category: {tech_cat} &nbsp;·&nbsp; Option #{tech_num}
             </div>
-            <div style="font-size:0.78rem;color:#6b7280;margin-bottom:0.4rem;font-weight:600;">
+            <div style="font-size:0.78rem;color:#94a3b8;margin-bottom:0.4rem;font-weight:600;">
                 ACCEPTED FILE TYPES
             </div>
             <div class="ext-wrap">{tags_html}</div>
@@ -2298,20 +2298,20 @@ elif selected_page == "Transpiler":
         dial_tags_sel = "".join(f'<span class="ext-tag teal">.{e}</span>' for e in dialect_exts)
         if dialect_info.get("oozie"):
             _engine_badge = (
-                '<span style="font-size:0.72rem;background:rgba(251,191,36,0.08);color:#92400e;'
-                'border:1px solid #fcd34d;border-radius:6px;padding:2px 7px;font-weight:600;">'
+                '<span style="font-size:0.72rem;background:rgba(251,191,36,0.06);color:#fbbf24;'
+                'border:1px solid rgba(251,191,36,0.2);border-radius:6px;padding:2px 7px;font-weight:600;">'
                 '🔁 Built-in engine (oozie_converter) — outputs Databricks Workflow JSON</span>'
             )
         elif dialect_info.get("ssrs"):
             _engine_badge = (
-                '<span style="font-size:0.72rem;background:rgba(251,191,36,0.08);color:#92400e;'
-                'border:1px solid #fcd34d;border-radius:6px;padding:2px 7px;font-weight:600;">'
+                '<span style="font-size:0.72rem;background:rgba(251,191,36,0.06);color:#fbbf24;'
+                'border:1px solid rgba(251,191,36,0.2);border-radius:6px;padding:2px 7px;font-weight:600;">'
                 '📊 Built-in engine (ssrs_converter) — outputs SQL notebooks + assessment JSON</span>'
             )
         elif dialect_info.get("custom"):
             _engine_badge = (
-                '<span style="font-size:0.72rem;background:rgba(251,191,36,0.08);color:#92400e;'
-                'border:1px solid #fcd34d;border-radius:6px;padding:2px 7px;font-weight:600;">'
+                '<span style="font-size:0.72rem;background:rgba(251,191,36,0.06);color:#fbbf24;'
+                'border:1px solid rgba(251,191,36,0.2);border-radius:6px;padding:2px 7px;font-weight:600;">'
                 '⚙️ Built-in engine (sqlglot) — no Databricks CLI needed</span>'
             )
         elif dialect_info.get("sparksql_only"):
@@ -2338,8 +2338,8 @@ elif selected_page == "Transpiler":
             target_cli = "OOZIE_WORKFLOW"
             selected_target_label = "Databricks Workflow JSON"
             st.markdown(
-                '<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;'
-                'padding:0.6rem 1rem;font-size:0.82rem;color:#065f46;font-weight:500;">'
+                '<div style="background:rgba(6,182,212,0.06);border:1px solid rgba(6,182,212,0.2);border-radius:8px;'
+                'padding:0.6rem 1rem;font-size:0.82rem;color:#67e8f9;font-weight:500;">'
                 '📋 Output: <strong>Databricks Workflow JSON</strong> — deployable via '
                 '<code>/api/2.1/jobs ,please use button below - Create Databricks Workflow</code></div>',
                 unsafe_allow_html=True,
@@ -2349,8 +2349,8 @@ elif selected_page == "Transpiler":
             target_cli = "SSRS_NOTEBOOKS"
             selected_target_label = "SQL Notebooks + Assessment JSON"
             st.markdown(
-                '<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;'
-                'padding:0.6rem 1rem;font-size:0.82rem;color:#065f46;font-weight:500;">'
+                '<div style="background:rgba(6,182,212,0.06);border:1px solid rgba(6,182,212,0.2);border-radius:8px;'
+                'padding:0.6rem 1rem;font-size:0.82rem;color:#67e8f9;font-weight:500;">'
                 '📊 Output: <strong>SQL Notebooks + Assessment JSON</strong> — '
                 'one .sql notebook and one assessment.json per report</div>',
                 unsafe_allow_html=True,
@@ -2360,8 +2360,8 @@ elif selected_page == "Transpiler":
             target_cli = "SPARKSQL"
             selected_target_label = "SparkSQL  (SQL-compatible Spark)"
             st.markdown(
-                '<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;'
-                'padding:0.6rem 1rem;font-size:0.82rem;color:#065f46;font-weight:500;">'
+                '<div style="background:rgba(6,182,212,0.06);border:1px solid rgba(6,182,212,0.2);border-radius:8px;'
+                'padding:0.6rem 1rem;font-size:0.82rem;color:#67e8f9;font-weight:500;">'
                 '⚡ Output: <strong>SparkSQL</strong> — SSIS packages convert to SparkSQL only '
                 '(BladeBridge limitation)</div>',
                 unsafe_allow_html=True,
@@ -2376,8 +2376,8 @@ elif selected_page == "Transpiler":
             )
             target_cli = TRANSPILER_TARGETS[selected_target_label]
             st.markdown(
-                '<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;'
-                'padding:0.6rem 1rem;font-size:0.82rem;color:#065f46;font-weight:500;">'
+                '<div style="background:rgba(6,182,212,0.06);border:1px solid rgba(6,182,212,0.2);border-radius:8px;'
+                'padding:0.6rem 1rem;font-size:0.82rem;color:#67e8f9;font-weight:500;">'
                 '🗄️ SQL output uses <strong>Databricks SQL dialect</strong> — '
                 'runs directly on Databricks SQL Warehouses &amp; clusters</div>',
                 unsafe_allow_html=True,
@@ -2470,9 +2470,9 @@ elif selected_page == "Transpiler":
             if tp_files:
                 tp_total_kb = sum(f.size for f in tp_files) / 1024
                 st.markdown(f"""
-                <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;
+                <div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.2);border-radius:10px;
                             padding:0.85rem 1.1rem;margin-top:0.5rem;">
-                    <div style="font-weight:700;color:#065f46;font-size:0.95rem;">
+                    <div style="font-weight:700;color:#4ade80;font-size:0.95rem;">
                         ✅ {len(tp_files)} file(s) ready · {tp_total_kb:.1f} KB
                     </div>
                 </div>
@@ -2777,8 +2777,8 @@ elif selected_page == "Transpiler":
                     if assessments:
                         n_auto = sum(1 for a in assessments.values() if a.get("auto_convertible"))
                         st.markdown(
-                            f'<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;'
-                            f'padding:0.75rem 1rem;margin-bottom:0.75rem;font-size:0.88rem;color:#065f46;">'
+                            f'<div style="background:rgba(6,182,212,0.06);border:1px solid rgba(6,182,212,0.2);border-radius:8px;'
+                            f'padding:0.75rem 1rem;margin-bottom:0.75rem;font-size:0.88rem;color:#67e8f9;">'
                             f'📊 <strong>{len(assessments)}</strong> report(s) assessed · '
                             f'<strong>{n_auto}/{len(assessments)}</strong> auto-convertible · '
                             f'<strong>{len(notebooks)}</strong> SQL notebook(s) generated</div>',
@@ -2933,8 +2933,8 @@ elif selected_page == "Settings":
 
     if db_host_env and db_token_env:
         st.markdown(
-            f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;'
-            f'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#166534;">'
+            f'<div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.2);border-radius:8px;'
+            f'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#4ade80;">'
             f'✅ <strong>Ready</strong> — workspace <code>{db_host_env}</code> and token are '
             f'already present in the environment. '
             f'You do not need to fill anything in below. '
@@ -2944,8 +2944,8 @@ elif selected_page == "Settings":
         )
     elif db_host_env:
         st.markdown(
-            f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;'
-            f'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#92400e;">'
+            f'<div style="background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.2);border-radius:8px;'
+            f'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#fbbf24;">'
             f'⚠️ <strong>Workspace URL detected</strong> (<code>{db_host_env}</code>) but no token '
             f'found in environment. Enter a token below to continue.'
             f'</div>',
@@ -2953,8 +2953,8 @@ elif selected_page == "Settings":
         )
     else:
         st.markdown(
-            '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;'
-            'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#991b1b;">'
+            '<div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:8px;'
+            'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#f87171;">'
             '⚠️ <strong>No credentials detected.</strong> Enter your Databricks workspace URL and '
             'Personal Access Token below. The Analyzer and Transpiler require a connected workspace.<br><br>'
             '<strong>On Databricks Apps:</strong> this is handled automatically — no input needed.'
@@ -3043,8 +3043,8 @@ elif selected_page == "Settings":
 
     if llm_endpoint_env and llm_api_key_env:
         st.markdown(
-            f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;'
-            f'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#166534;">'
+            f'<div style="background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.2);border-radius:8px;'
+            f'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#4ade80;">'
             f'✅ <strong>Ready</strong> — LLM endpoint <code>{llm_endpoint_env}</code> and API key are '
             f'already present in the environment. '
             f'You do not need to fill anything in below. '
@@ -3054,8 +3054,8 @@ elif selected_page == "Settings":
         )
     elif llm_endpoint_env:
         st.markdown(
-            f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;'
-            f'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#92400e;">'
+            f'<div style="background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.2);border-radius:8px;'
+            f'padding:0.85rem 1.1rem;margin-bottom:1.5rem;font-size:0.87rem;color:#fbbf24;">'
             f'⚠️ <strong>LLM Endpoint detected</strong> (<code>{llm_endpoint_env}</code>) but no API key '
             f'found in environment. Enter an API key below to continue.'
             f'</div>',
