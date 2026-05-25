@@ -33,6 +33,12 @@ Thumbs.db
 # Streamlit
 .streamlit/secrets.toml
 
+# Superpowers / visual companion session files
+.superpowers/
+
+# Databricks CLI sync snapshots
+lb_migration_platform_ui/.databricks/
+
 # Temp / generated output
 files/output/
 errors.log
