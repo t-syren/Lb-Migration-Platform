@@ -272,12 +272,24 @@ section[data-testid="stSidebar"],
 #sb-nav .sb-spacer { flex: 1; }
 #sb-nav .sb-badge {
     font-size: 11px; font-weight: 600;
-    color: var(--text-muted);
-    background: rgba(255,255,255,0.04);
-    border: 1px solid var(--glass-bdr);
     border-radius: 6px; padding: 3px 9px;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.03em; display: flex; align-items: center; gap: 5px;
 }
+#sb-nav .sb-badge.connected {
+    color: #4ade80;
+    background: rgba(34,197,94,0.10);
+    border: 1px solid rgba(34,197,94,0.30);
+}
+#sb-nav .sb-badge.not-connected {
+    color: #fbbf24;
+    background: rgba(251,191,36,0.08);
+    border: 1px solid rgba(251,191,36,0.25);
+}
+#sb-nav .sb-badge .dot {
+    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+}
+#sb-nav .sb-badge.connected .dot     { background: #4ade80; box-shadow: 0 0 5px #4ade8088; }
+#sb-nav .sb-badge.not-connected .dot { background: #fbbf24; }
 
 /* ── fadeUp animation ─────────────────────────────────────────────────────── */
 @keyframes fadeUp {
@@ -418,42 +430,111 @@ div[data-testid="stButton"] button:disabled {
 .info-box p { color: var(--text-muted); font-size: 0.85rem; margin: 0.2rem 0 0; }
 
 /* ── Dark Streamlit widgets ───────────────────────────────────────────────── */
-.stSelectbox > div > div,
+
+/* Text / number / password inputs — all Streamlit DOM variants */
 .stTextInput > div > div > input,
+.stTextInput input,
+.stNumberInput > div > div > input,
+.stNumberInput input,
+div[data-testid="stTextInput"] input,
+div[data-testid="stNumberInput"] input {
+    background: #1E293B !important;
+    border-color: var(--glass-bdr) !important;
+    color: #f1f5f9 !important;
+    border-radius: 8px !important;
+    caret-color: #f1f5f9 !important;
+}
+.stTextInput > div > div > input:focus,
+.stTextInput input:focus,
+div[data-testid="stTextInput"] input:focus,
+.stNumberInput > div > div > input:focus,
+div[data-testid="stNumberInput"] input:focus {
+    border-color: rgba(255,54,33,0.5) !important;
+    box-shadow: 0 0 0 1px rgba(255,54,33,0.3) !important;
+}
+
+/* Textarea */
 .stTextArea > div > div > textarea,
-.stNumberInput > div > div > input {
-    background: rgba(255,255,255,0.04) !important;
+.stTextArea textarea,
+div[data-testid="stTextArea"] textarea {
+    background: #1E293B !important;
+    border-color: var(--glass-bdr) !important;
+    color: #f1f5f9 !important;
+    border-radius: 8px !important;
+    caret-color: #f1f5f9 !important;
+}
+.stTextArea textarea:focus,
+div[data-testid="stTextArea"] textarea:focus {
+    border-color: rgba(255,54,33,0.5) !important;
+    box-shadow: 0 0 0 1px rgba(255,54,33,0.3) !important;
+}
+
+/* Selectbox */
+.stSelectbox > div > div,
+div[data-testid="stSelectbox"] > div > div,
+div[data-baseweb="select"] > div {
+    background: #1E293B !important;
+    border-color: var(--glass-bdr) !important;
+    border-radius: 8px !important;
+    color: #f1f5f9 !important;
+}
+.stSelectbox div[data-baseweb="select"] span,
+div[data-testid="stSelectbox"] span { color: #f1f5f9 !important; }
+.stSelectbox svg, div[data-testid="stSelectbox"] svg { fill: var(--text-muted) !important; }
+
+/* Selectbox dropdown menu */
+div[data-baseweb="popover"] ul,
+div[data-baseweb="menu"] {
+    background: #1E293B !important;
+    border-color: var(--glass-bdr) !important;
+}
+div[data-baseweb="popover"] li,
+div[data-baseweb="menu"] li {
+    background: #1E293B !important;
+    color: #f1f5f9 !important;
+}
+div[data-baseweb="popover"] li:hover,
+div[data-baseweb="menu"] li:hover { background: #334155 !important; }
+
+/* Multiselect */
+div[data-testid="stMultiSelect"] > div {
+    background: #1E293B !important;
     border-color: var(--glass-bdr) !important;
     color: #f1f5f9 !important;
     border-radius: 8px !important;
 }
-.stSelectbox > div > div:focus-within,
-.stTextInput > div > div > input:focus,
-.stTextArea > div > div > textarea:focus {
-    border-color: rgba(255,54,33,0.4) !important;
-    box-shadow: 0 0 0 1px rgba(255,54,33,0.25) !important;
-}
-.stSelectbox div[data-baseweb="select"] span { color: #f1f5f9 !important; }
-.stSelectbox svg { fill: var(--text-muted) !important; }
-.stRadio label { color: var(--text-pri) !important; }
+div[data-testid="stMultiSelect"] span { color: #f1f5f9 !important; }
+
+/* Radio / checkbox labels */
+.stRadio label, div[data-testid="stRadio"] label { color: var(--text-pri) !important; }
+.stCheckbox label, div[data-testid="stCheckbox"] label { color: var(--text-pri) !important; }
+
+/* File uploader */
 div[data-testid="stFileUploader"] {
     background: var(--glass-bg) !important;
     border-color: var(--glass-bdr) !important;
     border-radius: 10px !important;
 }
-div[data-testid="stFileUploader"] span { color: var(--text-muted) !important; }
-.streamlit-expanderHeader {
+div[data-testid="stFileUploader"] span,
+div[data-testid="stFileUploader"] p { color: var(--text-muted) !important; }
+div[data-testid="stFileUploader"] small { color: #475569 !important; }
+
+/* Expander */
+.streamlit-expanderHeader,
+div[data-testid="stExpander"] summary {
     background: var(--glass-bg) !important;
     color: var(--text-pri) !important;
     border-color: var(--glass-bdr) !important;
     border-radius: 8px !important;
 }
-.streamlit-expanderContent {
+.streamlit-expanderContent,
+div[data-testid="stExpander"] div[role="region"] {
     background: rgba(0,0,0,0.2) !important;
     border-color: var(--glass-bdr) !important;
 }
-.stCheckbox label { color: var(--text-pri) !important; }
-.stCaption { color: var(--text-muted) !important; }
+
+/* Tabs */
+.stCaption, div[data-testid="stCaptionContainer"] { color: var(--text-muted) !important; }
 div[data-testid="stTabs"] button {
     color: var(--text-muted) !important;
     background: transparent !important;
@@ -463,9 +544,23 @@ div[data-testid="stTabs"] button[aria-selected="true"] {
     color: var(--text-pri) !important;
     border-bottom-color: var(--orange) !important;
 }
+
+/* Slider */
+div[data-testid="stSlider"] label { color: var(--text-pri) !important; }
+
+/* Generic catch-all for any remaining white-background inputs */
+input:not([type="range"]):not([type="checkbox"]):not([type="radio"]) {
+    background-color: #1E293B !important;
+    color: #f1f5f9 !important;
+}
+textarea {
+    background-color: #1E293B !important;
+    color: #f1f5f9 !important;
+}
+
 .stDataFrame { filter: invert(0.85) hue-rotate(180deg); }
 div[data-testid="stAlert"] { border-radius: 10px !important; }
-input::placeholder, textarea::placeholder { color: #475569 !important; }
+input::placeholder, textarea::placeholder { color: #64748b !important; }
 p, li, span, label { color: var(--text-pri); }
 h1, h2, h3, h4, h5, h6 { color: #fff; }
 strong { color: #fff; }
@@ -1522,6 +1617,14 @@ if selected_page not in _PAGES:
 _logo_src = f"data:image/png;base64,{_LOGO_B64}" if _LOGO_B64 else ""
 _logo_img = f'<img src="{_logo_src}" alt="Syren">' if _logo_src else ""
 
+_db_host = (st.session_state.get("sb_db_host") or os.environ.get("DATABRICKS_HOST", "")).strip()
+_db_token = (st.session_state.get("sb_db_token") or os.environ.get("DATABRICKS_TOKEN", "")).strip()
+_is_connected = bool(_db_host and _db_token)
+if _is_connected:
+    _conn_badge = '<span class="sb-badge connected"><span class="dot"></span>Connected</span>'
+else:
+    _conn_badge = '<span class="sb-badge not-connected"><span class="dot"></span>Not Connected</span>'
+
 def _nav_link(label: str, page: str, active: str) -> str:
     from urllib.parse import quote_plus
     cls = "sb-link active" if page == active else "sb-link"
@@ -1542,7 +1645,7 @@ _nav_html = f"""
         {_nav_link("Settings", "Settings", selected_page)}
     </div>
     <div class="sb-spacer"></div>
-    <span class="sb-badge">13 Dialects</span>
+    {_conn_badge}
 </div>
 """
 st.markdown(_nav_html, unsafe_allow_html=True)
