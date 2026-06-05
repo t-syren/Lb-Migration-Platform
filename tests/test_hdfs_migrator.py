@@ -17,7 +17,11 @@ _LISTING_PATH = _REPO_ROOT / "files" / "sample_hdfs" / "hdfs_listing.txt"
 @pytest.fixture(scope="module")
 def listing_text():
     if not _LISTING_PATH.exists():
-        pytest.skip(f"Sample file not found: {_LISTING_PATH}")
+        pytest.fail(
+            f"Sample HDFS listing file missing: {_LISTING_PATH}\n"
+            "Restore it from git or create a replacement — "
+            "silently skipping hides real test coverage gaps."
+        )
     return _LISTING_PATH.read_text()
 
 

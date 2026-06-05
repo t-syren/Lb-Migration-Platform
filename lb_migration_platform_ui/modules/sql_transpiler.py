@@ -345,14 +345,21 @@ def create_table_handler(stmt: str, location: str|None = None) -> str:
     # 4. CTAS handling
     # -----------------------------------
     if is_ctas:
-        # Remove schema ONLY if directly after table name
-        stmt = re.sub(
-            r"(CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[\w\.]+)\s*\([^)]*\)",
-            r"\1",
-            stmt,
-            count=1,
-            flags=re.I
+        # Remove schema ONLY if directly after table name.
+        # Use a balanced-paren scanner instead of [^)]* so that complex types
+        # like MAP<STRING, ARRAY<INT>> and column COMMENT 'text (with parens)'
+        # don't trip the regex.
+        tbl_m = re.search(
+            r"(CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[\w\.`\"]+)\s*(\()",
+            stmt, re.I,
         )
+        if tbl_m:
+            open_i = tbl_m.start(2)
+            close_i = _find_matching_paren(stmt, open_i)
+            if close_i != -1:
+                after = stmt[close_i + 1:].lstrip()
+                if re.match(r"AS\s+SELECT", after, re.I):
+                    stmt = stmt[: tbl_m.end(1)] + stmt[close_i + 1:]
 
         # Add USING DELTA before AS
         stmt = re.sub(
@@ -460,6 +467,98 @@ def add_statement_issue(issues, category, message, stmt, line_no, stmt_index, se
         "line": line_no,
         "idx": stmt_index
     })
+
+def _find_matching_paren(s: str, start: int) -> int:
+    """Return the index of the closing paren that matches s[start]=='('."""
+    depth = 0
+    for i in range(start, len(s)):
+        if s[i] == '(':
+            depth += 1
+        elif s[i] == ')':
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
+
+
+def transpile_hive_sql(sql: str) -> str:
+    """
+    Convert a Hive SQL string to Databricks SQL.
+
+    Applies statement splitting, sqlglot conversion, and all post-processing
+    rules (clause stripping, CTAS normalisation, function rewrites).
+    Does not invoke the LLM path.  Suitable for unit tests and one-off calls.
+    """
+    import tempfile, os as _os
+    with tempfile.TemporaryDirectory() as tmpdir:
+        src_file = _os.path.join(tmpdir, "input.hql")
+        out_dir = _os.path.join(tmpdir, "out")
+        err_file = _os.path.join(tmpdir, "errors.log")
+        _os.makedirs(out_dir, exist_ok=True)
+        Path(src_file).write_text(sql, encoding="utf-8")
+        run_hive_transpiler(
+            src_dir=tmpdir,
+            out_dir=out_dir,
+            err_file=err_file,
+            target="SPARKSQL",
+            catalog="",
+            schema="",
+        )
+        for fname in sorted(_os.listdir(out_dir)):
+            fpath = _os.path.join(out_dir, fname)
+            if _os.path.isfile(fpath) and not fname.endswith(".log"):
+                content = Path(fpath).read_text(encoding="utf-8")
+                # Strip the trailing issues comment block so callers receive
+                # only the converted SQL, not the diagnostic annotations.
+                for marker in ("-- ⚠️ Issues:", "-- Issues:"):
+                    if marker in content:
+                        content = content[: content.index(marker)].rstrip()
+                        break
+                return content
+    return sql
+
+
+def infer_schema(sql: str) -> dict:
+    """
+    Extract {column_name: type} from a CREATE TABLE statement.
+
+    Handles complex nested types (MAP<>, ARRAY<>, STRUCT<>) and excludes
+    PARTITIONED BY columns.  Returns {} for non-CREATE-TABLE SQL.
+    """
+    # Find the opening paren of the column list
+    m = re.search(
+        r"CREATE\s+(?:EXTERNAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[\w\.`\"]+\s*(\()",
+        sql, re.I,
+    )
+    if not m:
+        return {}
+
+    open_idx = m.start(1)
+    close_idx = _find_matching_paren(sql, open_idx)
+    if close_idx == -1:
+        return {}
+
+    schema_text = sql[open_idx + 1: close_idx]
+
+    # Collect PARTITIONED BY column names to exclude
+    partitioned: set[str] = set()
+    pm = re.search(r"PARTITIONED\s+BY\s*\(([^)]+)\)", sql, re.I)
+    if pm:
+        for col_def in _split_top_level_csv(pm.group(1)):
+            parts = col_def.strip().split()
+            if parts:
+                partitioned.add(parts[0].strip("`\"'").upper())
+
+    result: dict[str, str] = {}
+    for col_def in _split_top_level_csv(schema_text):
+        parts = col_def.strip().split()
+        if len(parts) >= 2:
+            col_name = parts[0].strip("`\"'")
+            col_type = parts[1].upper()
+            if col_name.upper() not in partitioned:
+                result[col_name] = col_type
+    return result
+
 
 def run_hive_transpiler(
     src_dir: str,

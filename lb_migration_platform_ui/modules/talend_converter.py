@@ -421,6 +421,12 @@ def _gen_file_output_json(comp: TalendComponent, inputs: List[str]) -> Tuple[str
     )
 
 
+_TMAP_SKIP_PARAMS = frozenset({
+    "UNIQUE_NAME", "STARTABLE", "ACTIVATED", "MAPPING_TYPE",
+    "POSITION_X", "POSITION_Y", "LABEL",
+})
+
+
 def _gen_map(comp: TalendComponent, inputs: List[str]) -> Tuple[str, List[str]]:
     src = inputs[0] if inputs else "df_input"
     out = _df(comp.unique_name)
@@ -428,15 +434,36 @@ def _gen_map(comp: TalendComponent, inputs: List[str]) -> Tuple[str, List[str]]:
         f"{comp.unique_name}: tMap expressions require manual review — column passthrough generated. "
         "Add F.expr() or withColumn() calls for each transformation."
     ]
+
+    # Dump all non-trivial elementParameters as reference comments so engineers
+    # can see the original Talend expressions without opening the .item file.
+    expr_lines: List[str] = []
+    for name, val in comp.params.items():
+        if name in _TMAP_SKIP_PARAMS:
+            continue
+        clean = _strip_quotes(val).replace("\n", " ").strip()
+        if clean:
+            expr_lines.append(f"#   {name}: {clean[:160]}")
+
+    expr_block = ""
+    if expr_lines:
+        expr_block = (
+            "# Original tMap parameters (implement each as F.expr() / withColumn()):\n"
+            + "\n".join(expr_lines)
+            + "\n"
+        )
+
     if comp.columns:
         col_list = ", ".join(f'"{c.name}"' for c in comp.columns[:30])
         select_expr = f".select({col_list})"
     else:
         select_expr = ""
+
     code = (
         f"# {comp.unique_name}: Column mapping / transformation (tMap)\n"
-        f"# TODO: Add transformation expressions — current output is passthrough only\n"
-        f"{out} = {src}{select_expr}\n"
+        f"# TODO: Replace passthrough with actual transformation expressions\n"
+        + expr_block
+        + f"{out} = {src}{select_expr}\n"
     )
     return code, warnings
 

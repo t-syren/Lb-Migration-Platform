@@ -40,6 +40,16 @@ _OOZIE_ACTION_TYPES = {
 }
 _BASE_PARAMETER_LIST_DELIMITER = ","
 
+# Default cluster configuration used in generated Databricks job JSONs.
+# Change these values to match your target cloud/workspace before deploying:
+#   AWS  → node_type_id: "m5.xlarge"
+#   GCP  → node_type_id: "n1-standard-4"
+_DEFAULT_CLUSTER: Dict[str, Any] = {
+    "spark_version": "14.3.x-scala2.12",
+    "node_type_id":  "Standard_DS3_v2",   # Azure — update for AWS/GCP
+    "num_workers":   2,
+}
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DATA CLASSES
@@ -236,8 +246,15 @@ def parse_workflow(xml_str: str) -> WorkflowGraph:
             action_name = elem.get("name", "")
             # Attributes take precedence; child elements (<retry-max>, <retry-interval>)
             # are also accepted for compatibility with workflow variants that use them.
-            retry_max = int(elem.get("retry-max", "1") or "1")
-            retry_interval_ms = int(elem.get("retry-interval", "1") or "1") * 60000
+            try:
+                retry_max = int(elem.get("retry-max", "1") or "1")
+            except (ValueError, TypeError):
+                retry_max = 1
+            try:
+                # retry-interval is in minutes per the Oozie spec → convert to ms
+                retry_interval_ms = int(elem.get("retry-interval", "1") or "1") * 60_000
+            except (ValueError, TypeError):
+                retry_interval_ms = 60_000
 
             action_type = None
             ok_to = ""
@@ -252,9 +269,16 @@ def parse_workflow(xml_str: str) -> WorkflowGraph:
                 elif child_tag == "error":
                     error_to = child.get("to", "")
                 elif child_tag == "retry-max":
-                    retry_max = int((child.text or "1").strip())
+                    try:
+                        retry_max = int((child.text or "1").strip())
+                    except (ValueError, TypeError):
+                        retry_max = 1
                 elif child_tag == "retry-interval":
-                    retry_interval_ms = int((child.text or "1").strip()) * 60000
+                    try:
+                        # retry-interval is in minutes per the Oozie spec → convert to ms
+                        retry_interval_ms = int((child.text or "1").strip()) * 60_000
+                    except (ValueError, TypeError):
+                        retry_interval_ms = 60_000
                 elif child_tag in _OOZIE_ACTION_TYPES:
                     action_type = child_tag
                     files: List[str] = []
@@ -815,12 +839,6 @@ def workflow_to_dict(xml_str: str, job_name: str = "migrated-workflow") -> Dict[
             key=lambda t: (0 if t["task_key"] == graph.start_node else 1, t["task_key"])
         )
 
-    _default_cluster = {
-        "spark_version": "14.3.x-scala2.12",
-        "node_type_id":  "Standard_DS3_v2",
-        "num_workers":   2,
-    }
-
     payload: Dict[str, Any] = {
         "name":                  job_name,
         "email_notifications":   {},
@@ -833,13 +851,13 @@ def workflow_to_dict(xml_str: str, job_name: str = "migrated-workflow") -> Dict[
     if len(tasks) >= 2:
         # Shared job cluster — only valid for multi-task jobs
         payload["job_clusters"] = [
-            {"job_cluster_key": "default_cluster", "new_cluster": _default_cluster}
+            {"job_cluster_key": "default_cluster", "new_cluster": _DEFAULT_CLUSTER}
         ]
     else:
         # Single-task or empty job: inline cluster per task; shared clusters are rejected
         for t in tasks:
             t.pop("job_cluster_key", None)
-            t["new_cluster"] = _default_cluster
+            t["new_cluster"] = _DEFAULT_CLUSTER
 
     # Migration annotations (stripped before serialisation / API submission)
     notes: List[str] = []
@@ -922,11 +940,7 @@ def coordinator_to_dict(
                 {
                     "task_key":   "placeholder_task",
                     "depends_on": [],
-                    "new_cluster": {
-                        "spark_version": "14.3.x-scala2.12",
-                        "node_type_id":  "Standard_DS3_v2",
-                        "num_workers":   2,
-                    },
+                    "new_cluster": _DEFAULT_CLUSTER,
                     "notebook_task": {
                         "notebook_path": placeholder_path,
                         "source": "WORKSPACE",
@@ -1183,11 +1197,7 @@ def convert_oozie_file_set(
                         "notebook_path": app_path,
                         "source": "WORKSPACE",
                     },
-                    "new_cluster": {
-                        "spark_version": "14.3.x-scala2.12",
-                        "node_type_id":  "Standard_DS3_v2",
-                        "num_workers":   2,
-                    },
+                    "new_cluster": _DEFAULT_CLUSTER,
                 }
             ]
             warn_msg = (
