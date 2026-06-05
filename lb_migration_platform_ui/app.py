@@ -1781,10 +1781,10 @@ if selected_page == "Home":
         st.html("""
 <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);
             border-radius:14px;padding:1.75rem;text-align:center;font-family:'Inter',sans-serif;">
-    <div style="font-size:2.5rem;font-weight:800;color:#6366f1;line-height:1;">13</div>
+    <div style="font-size:2.5rem;font-weight:800;color:#6366f1;line-height:1;">14</div>
     <div style="font-size:12px;font-weight:600;color:#94a3b8;margin-top:8px;
                 text-transform:uppercase;letter-spacing:0.07em;">Transpiler Dialects</div>
-    <div style="font-size:12px;color:#475569;margin-top:4px;">CLI &middot; Custom engines &middot; SSRS &middot; Oozie</div>
+    <div style="font-size:12px;color:#475569;margin-top:4px;">CLI &middot; Custom engines &middot; SSRS &middot; Oozie &middot; Talend</div>
 </div>
 """)
     with sc3:
@@ -1838,7 +1838,7 @@ if selected_page == "Home":
     </div>
     <div style="font-size:17px;font-weight:700;color:#ffffff;margin-bottom:0.6rem;">Code Transpiler</div>
     <div style="font-size:14px;color:#94a3b8;line-height:1.65;margin-bottom:1.25rem;">
-        Convert HiveSQL, SSIS, SSRS, Oozie workflows, and 9 other dialects to
+        Convert HiveSQL, SSIS, SSRS, Oozie, Talend, and 9 other dialects to
         Databricks SQL, PySpark notebooks, or Jobs API JSON &mdash; with optional
         LLM-assisted refinement for complex statements.
     </div>
