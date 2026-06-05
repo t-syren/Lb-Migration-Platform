@@ -6,18 +6,20 @@ Project context for AI assistants working in this repository.
 
 ## What This Project Is
 
-SyrenBridge is a Streamlit app (deployed on Databricks Apps) that wraps **Databricks Labs Lakebridge** and extends it with two custom-built migration engines. The UI has two tabs: **Analyzer** and **Transpiler**.
+SyrenBridge is a Streamlit app (deployed on Databricks Apps) that wraps **Databricks Labs Lakebridge** and extends it with four custom-built migration engines. The UI has four tabs: **Get Started**, **Analyzer**, **Transpiler**, and **Settings**.
 
 - The Analyzer tab calls `lakebridge analyze` (36 supported source technologies).
-- The Transpiler tab calls `lakebridge transpile` for 10 CLI-backed dialects, plus two custom engines (HiveSQL and Oozie) that bypass the CLI entirely.
+- The Transpiler tab calls `lakebridge transpile` for 10 CLI-backed dialects, plus four custom engines that bypass the CLI entirely.
 
 Transpiler execution paths:
 1. CLI-backed dialects → `run_transpiler()` (Databricks Lakebridge)
 2. HiveSQL → `run_hive_transpiler()` (sqlglot-based, in-process)
-3. Oozie → `run_oozie_converter()` (lxml-based workflow conversion)
+3. Oozie → `run_oozie_converter()` (lxml-based workflow → Databricks Jobs JSON)
+4. SSRS → `run_ssrs_converter()` (lxml-based report → SQL notebooks + assessment JSON)
+5. Talend → `run_talend_converter()` (XML-based job → PySpark notebooks)
 ---
 
-## Two Custom Engines (Built Here, Not in Lakebridge)
+## Four Custom Engines (Built Here, Not in Lakebridge)
 
 ### 1. HiveSQL (Cloudera)
 - Lives in `modules/sql_transpiler.py`
@@ -26,7 +28,7 @@ Transpiler execution paths:
 - Outputs **Databricks SQL dialect** so the result runs directly on Databricks SQL Warehouses
 - Backed by `modules/sql_validator.py` (PySpark local mode) and `modules/dummy_data.py` (Faker-based row generation)
 
-### 2. Oozie (Workflow) — 11th Dialect
+### 2. Oozie (Workflow) — 12th Dialect
 - Lives in `modules/oozie_converter.py`; parsed with **lxml**; outputs Databricks Jobs API 2.1 JSON
 - Detected in `app.py` via `dialect_info.get("oozie")`; skips the CLI entirely
 - Entry point for multi-file conversion: `convert_oozie_file_set(files: Dict[str,str]) -> Dict`
@@ -45,6 +47,30 @@ Transpiler execution paths:
 - **`coord_job.pop("job_clusters", None)`** always called on coordinator jobs — they trigger other jobs and never run cluster tasks directly
 - `coordinator_to_dict()` always appends "No workflow XML supplied" warning when called without `workflow_xml_str`; `convert_oozie_file_set` filters this out when a workflow was matched (would be misleading)
 - Not converted: EL expressions `${...}` (preserved verbatim), datasets, SLA, coordinator end-time (in `coordinator_info` only)
+
+### 3. SSRS (Reports) — 13th Dialect
+- Lives in `modules/ssrs_converter.py`; parsed with **lxml**; outputs SQL notebooks + assessment JSON
+- Detected in `app.py` via `dialect_info.get("ssrs")`; skips the CLI entirely
+- Entry point: `convert_ssrs_file_set(files: Dict[str,str]) -> Dict`
+  - Returns `{"notebooks", "assessments", "warnings"}`
+  - Each `.rdl`/`.rdlc`/`.rsd` file → one `.sql` notebook (if auto-convertible) + one `_assessment.json`
+- **Auto-convertibility**: `True` if the report has at least one `Text`-type dataset; `False` if all datasets use stored procedures or VB.NET custom code
+- **T-SQL flagging**: `GETDATE→current_timestamp()`, `ISNULL→ifnull()`, `TOP N→LIMIT N`, `DATEADD→date_add()`, `WITH NOLOCK` removed
+- Assessment JSON contains: `report_name`, `auto_convertible`, `warnings`, `data_sources`, `datasets`, `report_items`, `parameters`, `vb_code_blocks`
+- SQL notebook format: one `-- ═══ Dataset: <name> ═══` block per dataset; parameters as `-- DECLARE` comments
+
+### 4. Talend — 14th Dialect
+- Lives in `modules/talend_converter.py`; parsed with `xml.etree.ElementTree`; outputs PySpark notebooks
+- Detected in `app.py` via `dialect_info.get("talend")`; skips the CLI entirely
+- Entry point: `convert_talend_file_set(files: Dict[str,str]) -> Dict`
+  - Returns `{"notebooks": {job_name: pyspark_code}, "warnings": [str]}`
+  - Each `.item` file → one `.py` PySpark notebook
+- **Component DAG**: topological sort of `<connection>` elements (`FLOW`/`ITERATE`/`MAIN` type) determines code generation order
+- **DB type inference**: `_db_type_from_component()` reads the component name (e.g. `tOracleInput` → `"oracle"`) before falling back to `DB_TYPE` param — do not rely on the param alone
+- **30+ component types**: DB inputs/outputs (MySQL, Oracle, MSSQL, PostgreSQL, Snowflake, Redshift, Teradata, Synapse), file I/O (CSV, JSON, Parquet, Excel, S3), Hive/Delta, tMap, tFilterRow, tSortRow, tAggregateRow, tJoin, tUnite, tLogRow, tReplaceList, tNormalize
+- **Passthrough stubs**: components without full support (`tMap`, `tFilterRow`, `tJoin`, `tAggregateRow`, `tReplaceList`, `tNormalize`, unknown types) get `# TODO` placeholder code + warning
+- **Context variables** (`${context.var}`, `globalMap.get(...)`) preserved verbatim — replace with `dbutils.widgets` or job parameters
+- **Multi-input components** (`tJoin`, `tUnite`): receive all predecessor DataFrames as a list; join key defaults to `"id"` with a manual-review warning
 
 ---
 
@@ -122,21 +148,24 @@ Tests require Java (for PySpark). On macOS with Homebrew: `brew install openjdk@
 
 ## Dialect List (app.py `TRANSPILER_DIALECTS`)
 
-| Key in dict | Engine | `"oozie": True`? | `"custom": True`? |
-|-------------|--------|-----------------|------------------|
-| DataStage | Lakebridge CLI | — | — |
-| HiveSQL (Cloudera) | Custom (sqlglot) | — | ✓ |
-| Informatica | Lakebridge CLI | — | — |
-| Informatica Cloud | Lakebridge CLI | — | — |
-| MS SQL Server | Lakebridge CLI | — | — |
-| Netezza | Lakebridge CLI | — | — |
-| Oracle | Lakebridge CLI | — | — |
-| Snowflake | Lakebridge CLI | — | — |
-| Synapse | Lakebridge CLI | — | — |
-| Teradata | Lakebridge CLI | — | — |
-| Oozie (Workflow) | Custom (lxml) | ✓ | — |
+| Key in dict | Engine | Flag |
+|-------------|--------|------|
+| DataStage | Lakebridge CLI | — |
+| HiveSQL (Cloudera) | Custom (sqlglot) | `"custom": True` |
+| Informatica | Lakebridge CLI | — |
+| Informatica Cloud | Lakebridge CLI | — |
+| MS SQL Server | Lakebridge CLI | — |
+| Netezza | Lakebridge CLI | — |
+| Oracle | Lakebridge CLI | — |
+| Snowflake | Lakebridge CLI | — |
+| SSIS | BladeBridge (Lakebridge) | `"sparksql_only": True` |
+| SSRS (Reports) | Custom (ssrs_converter) | `"ssrs": True` |
+| Synapse | Lakebridge CLI | — |
+| Teradata | Lakebridge CLI | — |
+| Oozie (Workflow) | Custom (lxml) | `"oozie": True` |
+| Talend | Custom (talend_converter) | `"talend": True` |
 
-The hero badge reads **"⚡ Transpiler — 11 Dialects"**. If a new dialect is added, update both `TRANSPILER_DIALECTS` and the badge count in the HTML block around line 770 of `app.py`.
+The "Transpiler — 14 Supported Dialects" label is in the Get Started tab HTML. The dispatch in the Transpiler tab uses `dialect_info.get("oozie")`, `dialect_info.get("ssrs")`, `dialect_info.get("talend")`, `dialect_info.get("custom")`, `dialect_info.get("sparksql_only")` — in that priority order — before falling through to the standard `run_transpiler()` CLI path. If a new dialect is added, update both `TRANSPILER_DIALECTS` and the count in the Get Started tab HTML.
 
 ---
 
@@ -168,6 +197,13 @@ This link appears in the blue info banner at the top of the Transpiler tab.
 
 - `files/source_hive/*.hql` — use these to test the HiveSQL transpiler
 - `files/sample_oozie/workflow.xml` — 4-action retail ETL pipeline for Oozie testing
+- `files/sample_ssis/RetailETL.dtsx` — standard SSIS package for BladeBridge testing
+- `files/sample_ssrs/SalesOrderReport.rdl` — auto-convertible SSRS report (Text datasets)
+- `files/sample_ssrs/InventoryStoredProc.rdl` — non-convertible SSRS report (stored proc + VB.NET)
+- `files/sample_talend/CustomerETL.item` — MySQL → tMap → tFilterRow → DeltaLake
+- `files/sample_talend/SalesAggregation.item` — Oracle join/aggregate → CSV
+- `files/sample_talend/HiveToSnowflakeMigration.item` — Hive → Snowflake + Parquet/S3
+- `files/sample_talend/FileIngestionPipeline.item` — CSV + JSON + Parquet union → HiveOutput
 - `files/sample_hdfs/hdfs_listing.txt` — sample `hdfs -ls -R` output
 
 ---

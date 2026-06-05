@@ -1,6 +1,6 @@
 # SyrenBridge — Migration Platform
 
-A Streamlit-based migration accelerator that wraps **Databricks Labs Lakebridge** and extends it with custom-built engines for Hive SQL transpilation and Oozie workflow conversion.
+A Streamlit-based migration accelerator that wraps **Databricks Labs Lakebridge** and extends it with four custom-built engines for HiveSQL transpilation, Oozie workflow conversion, SSRS report migration, and Talend job conversion.
 
 ---
 
@@ -9,13 +9,13 @@ A Streamlit-based migration accelerator that wraps **Databricks Labs Lakebridge*
 - [Overview](#overview)
 - [What Lakebridge Provides Natively](#what-lakebridge-provides-natively)
 - [What SyrenBridge Adds](#what-syrenbridge-adds)
-- [HiveSQL Transpiler Enhancements](#hivesql-transpiler-enhancements)
+  - [HiveSQL (Cloudera)](#1-hivesql-cloudera--custom-transpiler-engine)
+  - [Oozie (Workflow)](#2-oozie-workflow--12th-dialect)
+  - [SSRS (Reports)](#3-ssrs-reports--13th-dialect)
+  - [Talend](#4-talend--14th-dialect)
+- [HiveSQL Transpiler Pipeline](#hivesql-transpiler-pipeline)
 - [Application Tabs](#application-tabs)
-  - [Get Started](#get-started-tab)
-  - [Analyzer](#analyzer-tab)
-  - [Transpiler](#transpiler-tab)
-  - [Settings](#settings-tab)
-- [Supported Technologies — All 11 Dialects](#supported-technologies--all-11-dialects)
+- [Supported Technologies — All 14 Dialects](#supported-technologies--all-14-dialects)
 - [Module Architecture](#module-architecture)
 - [Sample Files](#sample-files)
 - [Running the App](#running-the-app)
@@ -30,9 +30,9 @@ A Streamlit-based migration accelerator that wraps **Databricks Labs Lakebridge*
 SyrenBridge is a browser-based migration toolkit deployed on Databricks Apps. It gives data engineers a single interface to:
 
 1. **Analyze** legacy data platform assets — discover schemas, stored procedures, and dependencies across 36 source technologies.
-2. **Transpile** source SQL and workflow code to Databricks-compatible output — across 11 source dialects.
+2. **Transpile** source SQL and workflow code to Databricks-compatible output — across 14 source dialects.
 
-The tool is built on top of [Databricks Labs Lakebridge](https://github.com/databrickslabs/lakebridge), a CLI that handles the bulk of the heavy lifting. SyrenBridge adds a polished UI and two custom-built engines for technologies Lakebridge does not cover out of the box.
+The tool is built on top of [Databricks Labs Lakebridge](https://github.com/databrickslabs/lakebridge), a CLI that handles the bulk of the heavy lifting. SyrenBridge adds a polished UI and four custom-built engines for technologies Lakebridge does not cover out of the box.
 
 ---
 
@@ -52,8 +52,6 @@ The Analyzer tab calls `lakebridge analyze` and supports the following source sy
 | BI/Reporting | Tableau, Power BI, MicroStrategy, Business Objects, Cognos, OBIEE, Qlik |
 | Other | Cassandra, MongoDB, Mainframe COBOL, JCL, Shell Scripts, PL/SQL |
 
-> The complete list of 36 technologies is determined by the installed version of Lakebridge. Run `lakebridge analyze --help` to see the current list.
-
 ### Transpiler — 10 CLI-Based Dialects
 
 Lakebridge handles transpilation for these 10 dialects via `lakebridge transpile`:
@@ -67,6 +65,7 @@ Lakebridge handles transpilation for these 10 dialects via `lakebridge transpile
 | Netezza | `netezza` | `.sql`, `.ddl`, `.dml`, `.nzb` |
 | Oracle | `oracle` | `.sql`, `.ddl`, `.dml`, `.pls`, `.pks`, `.pkb`, `.prc`, `.fnc`, `.vw`, `.trg` |
 | Snowflake | `snowflake` | `.sql`, `.ddl`, `.dml` |
+| SSIS | `ssis` | `.dtsx`, `.xml` |
 | Synapse | `synapse` | `.sql`, `.ddl`, `.dml`, `.json` |
 | Teradata | `teradata` | `.sql`, `.bteq`, `.tdl`, `.tpt`, `.ddl`, `.dml` |
 
@@ -74,450 +73,151 @@ Lakebridge handles transpilation for these 10 dialects via `lakebridge transpile
 
 ## What SyrenBridge Adds
 
-SyrenBridge contributes two custom engines on top of Lakebridge:
+SyrenBridge contributes four custom engines on top of Lakebridge, covering technologies that the CLI does not handle or where the CLI output is insufficient for production use.
 
 ### 1. HiveSQL (Cloudera) — Custom Transpiler Engine
 
 Lakebridge's HiveQL support is limited. SyrenBridge replaces the CLI call with a fully custom, production-grade transpilation pipeline:
 
-#### Enhanced Transpilation Pipeline
+- **sqlglot** conversion (`read="hive"`, `write="databricks"`)
+- Hive-specific function rewrites: `NVL→COALESCE`, `FROM_UNIXTIME→TIMESTAMP_SECONDS`, `MAPJOIN→BROADCAST`, etc.
+- Clause stripping: `ROW FORMAT`, `SERDE`, `STORED AS`, `TBLPROPERTIES`, `CLUSTERED BY`, `SKEWED BY`, etc.
+- Variable extraction: `${var}` / `SET var=value` → `DECLARE OR REPLACE VARIABLE`
+- Optional Stage 3 LLM fixing for ERROR/BLOCKER statements (Databricks Claude API)
+- Outputs `.sql` (Databricks SQL) or `.py` (PySpark notebook)
 
-The transpiler (`modules/sql_transpiler.py`) processes Hive SQL in three stages:
+### 2. Oozie (Workflow) — 12th Dialect
 
-**Stage 1: Pre-Processing (Whole-File Analysis)**
-- Extract and normalize Hive variables: `${var}`, `${hivevar:var}`, `SET var=value`
-  - Converts to Databricks `DECLARE OR REPLACE VARIABLE` syntax
-  - Filters out engine configs (`spark.*`, `hive.*`, `mapreduce.*`)
-- Detect unsupported constructs:
-  - `ADD JAR` (custom UDF JARs) — **BLOCKER**
-  - `CREATE TEMPORARY FUNCTION` — **BLOCKER**
-  - `EXPLAIN` statements (removed silently)
-  - Multi-insert statements — **BLOCKER**
-- Line-aware SQL statement splitting with full comment handling:
-  - Single-line (`--`) and block (`/* */`) comment preservation
-  - Quoted string and identifier handling (single/double/backtick)
-  - Each statement tracked with original line number
+Apache Oozie is not supported by Lakebridge. SyrenBridge converts Oozie XML to **Databricks Jobs API 2.1 JSON** using a custom `lxml`-based parser (`modules/oozie_converter.py`).
 
-**Stage 2: Statement-Level Conversion**
-- **sqlglot transpilation** (`read="hive"`, `write="databricks"`) for each statement
-- Hive-specific transformations (via regex):
-  - `NVL()` → `COALESCE()`
-  - `FROM_UNIXTIME(ts, fmt)` → `DATE_FORMAT(TIMESTAMP_SECONDS(ts), fmt)`
-  - `FROM_UNIXTIME(ts)` → `TIMESTAMP_SECONDS(ts)`
-  - `UNIX_TIMESTAMP()` → `CURRENT_TIMESTAMP()`
-  - `DISTRIBUTE BY` / `SORT BY` → removed
-  - `MAPJOIN` hints → `BROADCAST` hints
-- **CREATE TABLE handling**:
-  - Normalizes `CREATE EXTERNAL TABLE` → `CREATE TABLE`
-  - Adds `USING DELTA` clause
-  - Handles CTAS (`CREATE TABLE AS SELECT`)
-  - Preserves `LOCATION` directives (rewrite HDFS paths to dbfs:/)
-  - Removes Hive-only clauses: `ROW FORMAT`, `SERDE`, `STORED AS`, `TBLPROPERTIES`, `CLUSTERED BY`, `SORTED BY`, `SKEWED BY`, `INPUTFORMAT`, `OUTPUTFORMAT`
-- **Special DDL fixes**:
-  - `MSCK REPAIR TABLE tbl` → `REFRESH TABLE tbl`
-  - `ANALYZE TABLE tbl COMPUTE STATISTICS FOR COLUMNS` → `ANALYZE TABLE tbl COMPUTE STATISTICS FOR ALL COLUMNS`
-  - Flags external tables and CTAS for manual review (INFO-level issues)
+**Accepted inputs:** `workflow.xml`, `coordinator.xml`, or both together.
 
-**Stage 3: LLM Enhancement (Optional)**
-- If LLM endpoint configured (`llm_endpoint`, `llm_api_key`):
-  - Load prompt from `modules/prompts/hivesql.yml`
-  - Collect only problematic statements (ERROR or BLOCKER severity)
-  - Send to Databricks Claude Sonnet API with context
-  - Parse statement markers (`-- STATEMENT_ID: idx`) in output
-  - Replace problematic statements while preserving unrelated ones
-  - Safety checks: preserve INSERT/PARTITION logic, minimum length validation
-  - Falls back to rule-based output on LLM failure or timeout
+**Output:** One `.json` per job, deployable via the **Create Databricks Workflow** button in the UI.
 
-#### Output Formats
+Key capabilities:
+- All Oozie action types → Databricks task types (`notebook_task`, `spark_jar_task`, etc.)
+- Fork/join fan-out DAG resolution → `depends_on` wiring
+- Coordinator frequency → Quartz cron expression
+- Coordinator→workflow auto-linking via `run_job_task` with `{{job_id:<name>}}` sentinel
 
-- **Databricks SQL (`.sql`)**: Direct SQL suitable for Databricks SQL Warehouses
-  - Includes variable declarations
-  - Optional catalog/schema prefixes
-  - Issues annotated as SQL comments
-- **PySpark (`.py`)**: Notebook-ready Python code
-  - SparkSession initialization
-  - `spark.sql("""statement""")` wrapping
-  - Issues annotated as Python comments
+### 3. SSRS (Reports) — 13th Dialect
 
+SSRS (`.rdl`/`.rdlc`/`.rsd`) reports are converted by a custom `lxml`-based parser (`modules/ssrs_converter.py`). Lakebridge has no SSRS transpiler.
 
-### 2. Oozie (Workflow) — 11th Dialect
+**Output per report:**
+- **`.sql` notebook** — one SQL cell per dataset, runnable on a Databricks SQL Warehouse (auto-convertible reports only)
+- **`_assessment.json`** — full structural inventory: data sources, datasets, parameters, report items, VB.NET code blocks
 
-Apache Oozie is not supported by Lakebridge. SyrenBridge adds it as the 11th transpiler dialect via a custom lxml-based converter (`modules/oozie_converter.py`).
+Reports using stored procedures or VB.NET code are flagged as manual migration; they still receive an assessment JSON.
 
-**Accepted inputs (upload any combination):**
-- `workflow.xml` — Oozie workflow definition → standalone Databricks job
-- `coordinator.xml` — Oozie coordinator (schedule + workflow reference) → scheduled Databricks job
-- Both together — coordinator is automatically linked to the workflow via `run_job_task`
+T-SQL patterns are automatically flagged with Spark SQL equivalents: `GETDATE()→current_timestamp()`, `ISNULL→ifnull()`, `TOP N→LIMIT N`, etc.
 
-**Output:** One `.json` file per job (Databricks Jobs API 2.1 format). Deploy using the **Create Databricks Workflow** button in the UI, or via Databricks CLI / SDK.
+### 4. Talend — 14th Dialect
+
+Talend is supported in the Lakebridge **Analyzer** but not in its Transpiler CLI. SyrenBridge adds a custom XML-based converter (`modules/talend_converter.py`) that parses Talend `.item` job files and generates **Databricks PySpark notebooks** (`.py` files).
+
+**How it works:**
+1. Parses `.item` XML — extracts components, parameters, and column schemas
+2. Topological sort of the component DAG (connections define execution order)
+3. Generates PySpark code per component, threading DataFrames through the chain
+4. DB type inferred from component name (`tOracleInput` → `jdbc:oracle:thin:@...`)
+5. Complex components (`tMap`, `tFilterRow`, `tJoin`, `tAggregateRow`) get passthrough stubs with `# TODO` comments and warnings
+6. Context variables (`${context.var}`) preserved verbatim for replacement with Databricks widgets
+
+**Supported component types (30+):**
+
+| Category | Components |
+|----------|-----------|
+| DB Inputs | `tDBInput`, `tMysqlInput`, `tOracleInput`, `tMSSqlInput`, `tPostgresqlInput`, `tSnowflakeInput`, `tRedshiftInput`, `tTeradataInput`, `tSynapseInput` |
+| File Inputs | `tFileInputDelimited`, `tFileInputJSON`, `tFileInputParquet`, `tFileInputExcel`, `tS3Input` |
+| Hive / Delta | `tHiveInput`, `tDeltaLakeInput` |
+| DB Outputs | `tDBOutput`, `tMysqlOutput`, `tOracleOutput`, `tMSSqlOutput`, `tPostgresqlOutput`, `tSnowflakeOutput`, `tRedshiftOutput`, `tTeradataOutput` |
+| File Outputs | `tFileOutputDelimited`, `tFileOutputParquet`, `tFileOutputJSON` |
+| Hive / Delta | `tHiveOutput`, `tDeltaLakeOutput` |
+| Transforms | `tMap`, `tFilterRow`, `tSortRow`, `tAggregateRow`, `tJoin`, `tUnite`, `tLogRow`, `tReplaceList`, `tNormalize` |
 
 ---
 
-#### Workflow Conversion (Standalone)
-
-A single `workflow.xml` converts to a complete Databricks job payload with all tasks, dependencies, and cluster config pre-filled.
-
-**Supported Oozie constructs:**
-
-| Oozie Construct | Databricks Output |
-|---|---|
-| `<action type="hive">` | `notebook_task` at `/Migrations/hive/<name>` with script path + params in `base_parameters` |
-| `<action type="spark">` | `spark_jar_task` with `main_class_name` and `parameters` |
-| `<action type="shell">` | `notebook_task` at `/Migrations/shell/<name>` with exec + args |
-| `<action type="java">` | `spark_jar_task` with `main_class_name` |
-| `<action type="sub-workflow">` | `notebook_task` placeholder (app-path annotated for manual wiring) |
-| `<action type="pig/sqoop/fs/email/…">` | `notebook_task` stub at `/Migrations/<type>/<name>` |
-| `<fork>` / `<join>` | Parallel tasks via `depends_on` fan-out / fan-in |
-| `<decision>` | Placeholder `notebook_task` with all branches preserved in `base_parameters` |
-| `<kill>` | Recorded in `_migration_notes` annotation (no Jobs API equivalent) |
-| `<start to="…">` | Start task sorted first in the task list |
-| `<global><configuration>` | Merged into `base_parameters` of every task |
-| Action-level `<configuration>` | Merged into that task's `base_parameters` |
-| `retry-max` / `retry-interval` | `max_retries` / `min_retry_interval_millis` |
-| `<file>` / `<archive>` | `_distributed_files` annotation (no Jobs API equivalent) |
-
-**Cluster handling:**
-- **2+ tasks** → shared `job_clusters` entry (`job_cluster_key: "default_cluster"` on each task)
-- **1 task** → `new_cluster` inlined in the task (Databricks rejects shared clusters on single-task jobs)
-- Default cluster: `spark_version: 14.3.x-scala2.12`, `Standard_DS3_v2`, 2 workers
-
-**DAG resolution (`run_if` mapping):**
-
-| Oozie edge | `run_if` value |
-|---|---|
-| `<ok to="…">` only | `ALL_SUCCESS` |
-| `<error to="…">` only | `AT_LEAST_ONE_FAILED` |
-| Both types into same task | `ALL_DONE` |
-
-Fork/join pseudo-nodes are resolved transparently — the DAG resolver walks through them and wires the real action tasks directly as `depends_on` entries.
-
-**Migration annotations** (keys prefixed `_`, stripped before the JSON is written or sent to the API):
-
-| Key | Content |
-|---|---|
-| `_migration_notes` | Fork/join, decision, kill, global-config notes |
-| `_sub_workflow_note` | Sub-workflow app-path for manual wiring |
-| `_decision_note` | Branch conditions and routing guidance |
-| `_distributed_files` | File/archive staging (manual replacement needed) |
-
----
-
-#### Coordinator Conversion
-
-A `coordinator.xml` converts to a **separate Databricks job** with a Quartz cron schedule. The coordinator job does not merge the workflow into itself — the two remain independent jobs.
-
-**Frequency → Quartz cron mapping:**
-
-| Oozie Frequency | Quartz Cron |
-|---|---|
-| `${coord:minutes(N)}` where N < 60 | `0 0/N * * * ?` |
-| `${coord:hours(1)}` | `0 0 * * * ?` |
-| `${coord:hours(N)}` | `0 0 0/N * * ?` |
-| `${coord:days(1)}` | `0 0 0 * * ?` |
-| `${coord:days(N)}` | `0 0 0 1/N * ?` |
-| `${coord:months(1)}` | `0 0 0 1 * ?` |
-| `${coord:months(N)}` | `0 0 0 1 1/N ?` |
-| `60` (minutes) | `0 0 * * * ?` |
-| `1440` (minutes) | `0 0 0 * * ?` |
-| `10080` (minutes) | `0 0 0 ? * MON` |
-| Unrecognised | `0 0 0 * * ?` (default) + warning |
-
-Every coordinator JSON includes a `coordinator_info` block with the original Oozie metadata:
-```json
-"coordinator_info": {
-  "frequency": "${coord:days(1)}",
-  "start": "2024-01-01T00:00Z",
-  "end": "2024-01-10T00:00Z",
-  "timezone": "UTC",
-  "workflow_app_path": "/apps/wf-sales",
-  "quartz_cron_expression": "0 0 0 * * ?"
-}
-```
-
----
-
-#### Coordinator + Workflow Linking
-
-When a coordinator XML and one or more workflow XMLs are uploaded together, SyrenBridge links them automatically using the `<app-path>` value inside the coordinator's `<action><workflow>` element.
-
-**Conversion order (important):**
-1. All workflow XMLs are converted first → independent Databricks jobs
-2. Each coordinator is matched to a workflow by comparing the `<app-path>` basename to workflow names
-3. Matched coordinator → `run_job_task` pointing to the workflow job
-4. Unmatched coordinator → notebook placeholder task + `migration_warnings` field
-
-**Matching algorithm** (first match wins):
-
-| Priority | Rule | Example |
-|---|---|---|
-| 1 | Workflow `name` attribute == app-path basename (exact) | `name="wf-sales"`, path `.../wf-sales` |
-| 2 | Workflow filename stem == app-path basename (exact) | file `wf-sales.xml`, path `.../wf-sales` |
-| 3a | Normalised workflow name == normalised basename | `name="wf_sales"`, path `.../wf-sales` ← **hyphen↔underscore** |
-| 3b | Normalised filename stem == normalised basename | file `wf_sales.xml`, path `.../wf-sales` |
-
-*Normalisation:* lowercase + collapse `-` and `_` to `_`. Covers the common Oozie convention where HDFS paths use hyphens and XML `name=` attributes use underscores.
-
-**Linked coordinator output (workflow was matched):**
-```json
-{
-  "name": "coord-daily",
-  "tasks": [
-    {
-      "task_key": "run_wf_sales",
-      "run_if": "ALL_SUCCESS",
-      "depends_on": [],
-      "run_job_task": { "job_id": "{{job_id:wf_sales}}" }
-    }
-  ],
-  "schedule": { "quartz_cron_expression": "0 0 0 * * ?", "timezone_id": "UTC", "pause_status": "PAUSED" },
-  "coordinator_info": { ... }
-}
-```
-
-`"{{job_id:wf_sales}}"` is a sentinel placeholder. The UI replaces it automatically with the real integer job_id as soon as the workflow job is created in Databricks.
-
-**Unmatched coordinator output (no workflow XML supplied):**
-```json
-{
-  "name": "coord-daily",
-  "tasks": [
-    {
-      "task_key": "run_daily_flow",
-      "notebook_task": { "notebook_path": "/apps/daily_flow", "source": "WORKSPACE" },
-      "new_cluster": { ... }
-    }
-  ],
-  "migration_warnings": [
-    "No workflow XML supplied for coordinator 'coord-daily'. A placeholder task pointing to '/apps/daily_flow' was inserted. Replace it with the actual migrated notebook path."
-  ],
-  "schedule": { ... },
-  "coordinator_info": { ... }
-}
-```
-
-**Recommended deploy order:**
-1. Upload workflow XML + coordinator XML together
-2. Convert → one JSON per job is written to the output folder
-3. **Create workflow job first** → Databricks returns a real `job_id`
-4. UI automatically patches the coordinator JSON: `"{{job_id:wf_sales}}"` → real integer
-5. Create coordinator job — it now references the correct workflow job
-
----
-
-#### What Is Not Converted
-
-| Oozie Feature | Handling | Notes |
-|---|---|---|
-| EL expressions `${...}` | Preserved verbatim | No Databricks equivalent — replace manually |
-| Dataset-based scheduling | Skipped | Oozie input/output datasets have no Jobs API equivalent |
-| SLA configurations | Skipped silently | No Jobs API equivalent |
-| Coordinator `end-time` | `coordinator_info` only | Databricks jobs have no end-date concept |
-| `<file>` / `<archive>` distributions | Annotation only | No HDFS staging in Databricks — wire via `init_scripts` or libraries |
-| Decision branch routing | All branches kept | Jobs API has no data-driven conditional routing |
-| Kill node messages | `_migration_notes` annotation | Add failure email/webhook notifications manually |
-| Sub-workflow nesting | Placeholder notebook task | Migrate referenced workflows separately, then update `notebook_path` |
-| Hive `<job-xml>` config | Ignored | Hive engine config not applicable in Databricks |
-| Multiple `<app-path>` in one coordinator | First path only | Oozie coordinators are designed to trigger one workflow |
-
----
-
-## HiveSQL Transpiler Enhancements
-
-The HiveSQL transpiler has been significantly enhanced with a **3-stage production-grade pipeline**, advanced issue detection, and optional LLM-assisted fixing.
-
-### Transpilation Pipeline Overview
+## HiveSQL Transpiler Pipeline
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│ Stage 1: Pre-Processing (Whole-File Analysis)              │
-├──────────────────────────────────────────────────────────────┤
-│ • Extract & normalize Hive variables (${var}, SET statements)
-│ • Detect blockers: ADD JAR, CREATE TEMPORARY FUNCTION       │
-│ • Line-aware SQL statement splitting with full comment      │
-│   handling (single-line, block, quoted strings, identifiers)│
-│ • Generate DECLARE OR REPLACE VARIABLE statements           │
-│ • Remove: UDF definitions, EXPLAIN plans, CLUSTERED/SORTED  │
-│   BY clauses                                                 │
-└──────────────────────────────────────────────────────────────┘
-                           ↓
-┌──────────────────────────────────────────────────────────────┐
-│ Stage 2: Statement-Level Conversion & Cleaning              │
-├──────────────────────────────────────────────────────────────┤
-│ • sqlglot transpilation (read="hive", write="databricks")   │
-│ • Hive → Databricks function rewrites (NVL, FROM_UNIXTIME,  │
-│   UNIX_TIMESTAMP, MAPJOIN hints, etc.)                      │
-│ • CREATE TABLE normalization (EXTERNAL → TABLE,             │
-│   USING DELTA, CTAS handling)                               │
-│ • DDL fixes (MSCK REPAIR → REFRESH, ANALYZE normalization)  │
-│ • Issue tagging (unsupported constructs, parse errors)      │
-│ • Hive clause stripping (ROW FORMAT, SERDE, STORED AS, etc.)│
-└──────────────────────────────────────────────────────────────┘
-                           ↓
-        ┌──────────────────┴──────────────────┐
-        ↓ (if LLM configured)                 ↓ (no LLM)
-┌──────────────────────────────────────────┐
-│ Stage 3: LLM Enhancement (Optional)      │
-├──────────────────────────────────────────┤
-│ • Collect ERROR/BLOCKER statements       │
-│ • Send to Databricks Claude with context │
-│ • Parse STATEMENT_ID markers             │
-│ • Replace problematic statements         │
-│ • Fallback to rule-based output on error │
-└──────────────────────────────────────────┘
-                           ↓
-┌──────────────────────────────────────────────────────────────┐
-│ Output: Databricks SQL (.sql) or PySpark (.py)             │
-│         + Issues log (SQL/Python comments)                   │
-│         + Error file (any read/write errors)                 │
-└──────────────────────────────────────────────────────────────┘
+Input SQL
+ → Stage 1: Pre-processing
+   – Extract Hive variables (${var}, SET statements) → DECLARE OR REPLACE VARIABLE
+   – Detect blockers: ADD JAR, CREATE TEMPORARY FUNCTION, multi-insert
+   – Line-aware statement splitting (handles comments, quoted strings, identifiers)
+ → Stage 2: Statement-level conversion
+   – sqlglot (read="hive", write="databricks")
+   – Function rewrites (NVL, FROM_UNIXTIME, UNIX_TIMESTAMP, MAPJOIN hints)
+   – CREATE TABLE normalisation (EXTERNAL→TABLE, USING DELTA, CTAS)
+   – Clause stripping (ROW FORMAT, SERDE, STORED AS, TBLPROPERTIES, CLUSTERED BY, etc.)
+   – Issue tagging (BLOCKER / ERROR / WARNING / INFO)
+ → Stage 3: LLM enhancement (optional — only if endpoint configured)
+   – Collects ERROR/BLOCKER statements only
+   – Sends to Databricks Claude Sonnet API with prompt
+   – Replaces problematic statements; falls back to rule-based on failure
+ → Output: Databricks SQL (.sql) or PySpark (.py) + issues log
 ```
 
-
-### Issue Detection & Categorization
-
-All issues are categorized by severity:
+### Issue Severity Levels
 
 | Severity | Meaning | Action |
 |----------|---------|--------|
-| **BLOCKER** | Fatal — transpilation cannot proceed | Manual rewrite required |
-| **ERROR** | Parse/conversion error | Candidate for LLM fixing or manual review |
+| **BLOCKER** | Cannot auto-convert | Manual rewrite required |
+| **ERROR** | Parse/conversion failure | LLM fix candidate or manual review |
 | **WARNING** | Unsupported feature detected | Manual review recommended |
-| **INFO** | FYI — clause converted, verify behavior | Normal, no action required |
-
-**Common blockers:**
-- `ADD JAR` (custom UDF JARs) — requires PySpark UDF registration
-- `CREATE TEMPORARY FUNCTION` — custom Hive UDFs not portable
-- Multi-insert statements — not supported in Databricks
-- `LOAD DATA` (HDFS bulk load) — use `COPY INTO` or Databricks I/O instead
-
-**Common warnings:**
-- Dynamic variables (`${...}`) — may need manual substitution
-- External tables — converted to Delta, verify LOCATION and format
-
-**Common info:**
-- `MSCK REPAIR TABLE` → `REFRESH TABLE` — internal catalog maintained automatically
-- `ANALYZE TABLE ... FOR COLUMNS` → normalized syntax
-
-### LLM-Assisted Fixing (Optional)
-
-When LLM credentials are provided, the transpiler automatically attempts to fix problematic statements:
-
-**Configuration:**
-- `llm_endpoint`: Databricks API endpoint (e.g., `https://<workspace>.cloud.databricks.com/api/2.0/serving-endpoints/chat/completions`)
-- `llm_api_key`: Databricks Personal Access Token
-- Model: Defaults to `databricks-claude-sonnet-4-6`
-
-**Flow:**
-1. Collect statements with ERROR or BLOCKER severity
-2. Load prompt from `modules/prompts/hivesql.yml`
-3. Send batch with `-- STATEMENT_ID: idx` markers
-4. Parse LLM output using markers
-5. Replace only problematic statements (safety checks):
-   - Minimum output length (≥10 chars)
-   - Preserve INSERT/PARTITION keywords
-   - Exact statement ID matching
-6. Fall back to rule-based output if LLM fails/times out
-
-**Safety guarantees:**
-- LLM only touches ERROR/BLOCKER statements
-- INFO/WARNING statements unmodified
-- Unrelated statements fully preserved
-- Automatic fallback on any LLM error
-- Output validity checks prevent broken SQL
-
-### Supported Transformations
-
-**Function Rewrites:**
-| Hive Function | Databricks Equivalent |
-|---------------|----------------------|
-| `NVL(x, y)` | `COALESCE(x, y)` |
-| `FROM_UNIXTIME(ts)` | `TIMESTAMP_SECONDS(ts)` |
-| `FROM_UNIXTIME(ts, fmt)` | `DATE_FORMAT(TIMESTAMP_SECONDS(ts), fmt)` |
-| `UNIX_TIMESTAMP()` | `CURRENT_TIMESTAMP()` |
-| `/\*+ MAPJOIN(tbl) \*/` | `/\*+ BROADCAST(tbl) \*/` |
-
-**Clause Handling:**
-| Hive Clause | Action | Databricks Behavior |
-|-------------|--------|-------------------|
-| `ROW FORMAT DELIMITED` | Removed | Inferred from data format |
-| `ROW FORMAT SERDE` | Removed | Use `STORED AS PARQUET` / `ORC` instead |
-| `STORED AS {TEXTFILE,ORC,PARQUET,…}` | Removed | Use table format parameter |
-| `TBLPROPERTIES (...)` | Removed | Unsupported, migrate manually |
-| `LOCATION 'hdfs://...'` | Preserved | Rewrite to `dbfs:/` or `abfss://` path |
-| `CLUSTERED BY` | Removed | Use Z-order or clustering hints |
-| `SORTED BY` | Removed | Use ORDER BY in queries |
-| `SKEWED BY` | Removed | Not needed in Databricks |
-| `INPUTFORMAT` / `OUTPUTFORMAT` | Removed | Auto-detected from `STORED AS` |
-
-**CREATE TABLE Normalization:**
-- `CREATE EXTERNAL TABLE` → `CREATE TABLE` (Delta-managed by default)
-- Adds `USING DELTA` clause
-- Handles CTAS (Create Table As Select) — schema inferred from SELECT
-- External table LOCATION preserved (verify hdfs:// → dbfs:/ rewrite)
-- Unsupported clauses stripped, issues flagged for review
+| **INFO** | Clause converted — verify behavior | No action usually needed |
 
 ---
+
+## Application Tabs
 
 ### Get Started Tab
-
-Landing page and documentation for new users.
-
-- 2-step guide (Analyze → Transpile)
-- Side-by-side comparison: what Lakebridge provides vs. what SyrenBridge adds
-- Full 11-dialect transpiler table with engine type and output format
-- 36 Analyzer technologies grouped by SQL / ETL / Code
-- Link to the Syren S2S platform for PySpark/Serverless migrations
+Landing page with 2-step guide (Analyze → Transpile), full 14-dialect transpiler table, 36-technology analyzer list, and link to the Syren S2S platform for PySpark/Serverless migrations.
 
 ### Analyzer Tab
-
-Calls `lakebridge analyze` on uploaded source files or a local directory.
-
-- Upload source files (any format) or point to a directory
-- Select the source technology from the 36-technology dropdown
-- View the analysis report in-browser
-- Download the full report as a ZIP
+Calls `lakebridge analyze` on uploaded files or a Databricks workspace path.
+- Select from 36 source technologies
+- Upload files / ZIP or browse Databricks workspace
+- View analysis report in-browser, download as ZIP
 
 ### Transpiler Tab
-
-Converts source code to Databricks-compatible output.
-
-- Select source dialect from 11 options
-- Upload individual files or a ZIP archive
-- For HiveSQL: choose output format (Databricks SQL `.sql` or PySpark `.py`); green badge clarifies Databricks dialect is used
-- For Oozie: output is always Databricks Workflow JSON; limitations warning (fork/join, EL expressions, Coordinator) shown with results
-- For all other dialects: choose PySpark or SparkSQL
-- View transpiled output with syntax highlighting per file type
-- Download all output as a ZIP
-
-**PySpark note**: A blue info banner in the Transpiler tab links to the Syren Server to Serverless Migration Platform for PySpark and Spark Classic → Serverless migrations.
+Converts source code to Databricks-compatible output across all 14 dialects.
+- Upload files / ZIP or browse Databricks workspace
+- **HiveSQL**: Databricks SQL or PySpark output; optional LLM enhancement
+- **Oozie**: Databricks Workflow JSON; one-click **Create Databricks Workflow** button
+- **SSRS**: SQL Notebooks + Assessment JSON
+- **Talend**: PySpark notebooks (one `.py` per `.item` job file)
+- **SSIS**: SparkSQL only (BladeBridge limitation)
+- **All others**: choose PySpark or SparkSQL
+- Download all output as ZIP or upload directly to Databricks workspace
 
 ### Settings Tab
-
-Configure Databricks credentials for local use. On Databricks Apps, auth is automatic.
-
-- Input Databricks Workspace URL and Personal Access Token
-- Or specify a named profile from `~/.databrickscfg`
-- Credentials are held in session state only — never written to disk
-- Live connection test via `databricks auth status`
-- Auto-detects if `DATABRICKS_HOST` is already set in the environment
+Configure Databricks and LLM credentials.
+- Databricks Workspace URL + Personal Access Token
+- Optional LLM endpoint + API key for HiveSQL Stage 3 enhancement
+- Credentials held in session state only — never written to disk
 
 ---
 
-## Supported Technologies — All 11 Dialects
+## Supported Technologies — All 14 Dialects
 
-| # | Dialect | Engine | Output Format |
-|---|---------|--------|---------------|
-| 1 | DataStage | Lakebridge CLI | PySpark / SparkSQL |
-| 2 | HiveSQL (Cloudera) | **Custom (sqlglot)** | Databricks SQL |
-| 3 | Informatica | Lakebridge CLI | PySpark / SparkSQL |
-| 4 | Informatica Cloud | Lakebridge CLI | PySpark / SparkSQL |
-| 5 | MS SQL Server | Lakebridge CLI | PySpark / SparkSQL |
-| 6 | Netezza | Lakebridge CLI | PySpark / SparkSQL |
-| 7 | Oracle | Lakebridge CLI | PySpark / SparkSQL |
-| 8 | Snowflake | Lakebridge CLI | PySpark / SparkSQL |
-| 9 | Synapse | Lakebridge CLI | PySpark / SparkSQL |
-| 10 | Teradata | Lakebridge CLI | PySpark / SparkSQL |
-| 11 | Oozie (Workflow) | **Custom (lxml)** | Databricks Jobs API 2.1 JSON |
+| # | Dialect | Engine | Output Format | Source Extensions |
+|---|---------|--------|---------------|-------------------|
+| 1 | DataStage | Lakebridge CLI | PySpark / SparkSQL | `.dsx .xml .pjb` |
+| 2 | HiveSQL (Cloudera) | **Custom (sqlglot)** | Databricks SQL / PySpark | `.hql .hive .sql .ddl .dml` |
+| 3 | Informatica | Lakebridge CLI | PySpark / SparkSQL | `.xml .session .wf .m .mplt .lkp` |
+| 4 | Informatica Cloud | Lakebridge CLI | PySpark / SparkSQL | `.xml .json .session` |
+| 5 | MS SQL Server | Lakebridge CLI | PySpark / SparkSQL | `.sql .ddl .dml .proc .view` |
+| 6 | Netezza | Lakebridge CLI | PySpark / SparkSQL | `.sql .ddl .dml .nzb` |
+| 7 | Oracle | Lakebridge CLI | PySpark / SparkSQL | `.sql .ddl .dml .pls .prc .vw` |
+| 8 | Snowflake | Lakebridge CLI | PySpark / SparkSQL | `.sql .ddl .dml` |
+| 9 | SSIS | BladeBridge (Lakebridge) | SparkSQL only | `.dtsx .xml` |
+| 10 | Synapse | Lakebridge CLI | PySpark / SparkSQL | `.sql .ddl .dml .json` |
+| 11 | Teradata | Lakebridge CLI | PySpark / SparkSQL | `.sql .bteq .tdl .tpt .ddl .dml` |
+| 12 | Oozie (Workflow) | **Custom (lxml)** | Databricks Jobs JSON | `.xml` |
+| 13 | SSRS (Reports) | **Custom (ssrs_converter)** | SQL Notebooks + JSON | `.rdl .rdlc .rsd` |
+| 14 | Talend | **Custom (talend_converter)** | PySpark Notebooks | `.item .xml` |
 
 ---
 
@@ -528,147 +228,30 @@ All custom logic lives in `lb_migration_platform_ui/modules/`. These are pure-Py
 ```
 modules/
 ├── __init__.py
-├── sql_transpiler.py       # transpile_hive_sql(), run_hive_transpiler(), handle_hive_variables()
-├── llm_converter.py        # LLMConverter class for LLM-assisted SQL fixing
+├── sql_transpiler.py       # HiveSQL → Databricks SQL/PySpark (3-stage pipeline)
+├── llm_converter.py        # LLM-assisted SQL fixing (Databricks Claude API)
 ├── sql_validator.py        # validate_transpilation() → ValidationResult
-├── dummy_data.py           # generate_rows(), register_temp_tables()
-├── oozie_converter.py      # parse_workflow(), to_databricks_job(), workflow_to_json()
-├── pyspark_migrator.py     # migrate_pyspark_script(), migrate_notebook()
-├── hdfs_migrator.py        # parse_hdfs_listing(), generate_fs_cp_script(), ...
+├── dummy_data.py           # Faker-based synthetic test data generation
+├── oozie_converter.py      # Oozie XML → Databricks Jobs API 2.1 JSON
+├── ssrs_converter.py       # SSRS .rdl → SQL notebooks + assessment JSON
+├── talend_converter.py     # Talend .item XML → Databricks PySpark notebooks
+├── databricks_service.py   # DatabricksClient — workspace browse / upload / download
+├── pyspark_migrator.py     # PySpark script HDFS-path and deprecated-API modernisation
+├── hdfs_migrator.py        # HDFS listing → dbutils.fs / Unity Catalog scripts
 └── prompts/
     ├── __init__.py
-    └── hivesql.yml         # LLM prompt template for HiveSQL fixes
+    └── hivesql.yml         # LLM prompt for HiveSQL Stage 3 enhancement
 ```
 
-### `sql_transpiler.py`
+### Key Entry Points
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `split_sql_statements` | `(sql: str) -> List[Tuple[str, int]]` | Parse SQL into statements with line-aware comment handling; returns `[(stmt, line_number), ...]` |
-| `handle_hive_variables` | `(content: str) -> Tuple[str, List[str]]` | Extract Hive variables, generate `DECLARE OR REPLACE VARIABLE` statements, return cleaned SQL and declarations |
-| `create_table_handler` | `(stmt: str, location: str\|None) -> str` | Normalize CREATE TABLE statements: add `USING DELTA`, handle CTAS, preserve/add LOCATION |
-| `add_global_issue` | `(issues, category, message, pattern, content, severity)` | Add multi-line issue for patterns found in entire file |
-| `add_statement_issue` | `(issues, category, message, stmt, line_no, stmt_index, severity)` | Add issue for specific statement |
-| `run_hive_transpiler` | `(src_dir, out_dir, err_file, target, catalog, schema, llm_endpoint, llm_api_key) -> Tuple[bool, str, str]` | **Main entry point**: transpile all `.hql` files in directory, apply transformations, optionally fix with LLM, output `.sql` or `.py` |
-
-**Key parameters for `run_hive_transpiler`**:
-- `target`: `"SPARKSQL"` (output `.sql`) or `"PYSPARK"` (output `.py`)
-- `catalog`, `schema`: Optional Databricks three-level namespace
-- `llm_endpoint`, `llm_api_key`: Optional LLM service endpoint (Databricks API) and token for statement enhancement
-- `err_file`: Error log file path
-
-### `llm_converter.py`
-
-LLM-assisted SQL transpilation engine. Integrates with Databricks API or other OpenAI-compatible endpoints.
-
-| Class/Function | Signature | Description |
-|---|---|---|
-| `load_prompt` | `(prompt_obj) -> Dict` | Load YAML prompt file or return dict as-is |
-| `format_issues` | `(issues) -> str` | Format issue list as `[SEVERITY] CATEGORY → message` strings |
-| `LLMConverter.__init__` | `(api_key, endpoint, model, max_retries, timeout, max_tokens)` | Initialize LLM client with Databricks defaults: `databricks-claude-sonnet-4-6`, max_tokens=12000 |
-| `LLMConverter.build_prompt` | `(prompt_config, code, issues)` | Combine system prompt, user template, and issues into final prompt |
-| `LLMConverter.call_llm` | `(system_prompt, user_prompt) -> str` | Call LLM API with retry logic (exponential backoff, request tracking) |
-| `LLMConverter.code_convert_llm` | `(code, prompt, issues, fallback) -> str` | **Main entry point**: load prompt, call LLM, return fixed code or original on failure |
-
-**Key features**:
-- Retries with exponential backoff (default 3 attempts)
-- Request ID tracking for debugging
-- Fallback to original code on error (if `fallback=True`)
-- Strict safety checks: minimum output length, preserves INSERT/PARTITION logic
-
-### `prompts/hivesql.yml`
-
-YAML prompt template for LLM-based HiveSQL fixing. Controls LLM behavior during Stage 3 enhancement.
-
-```yaml
-system: |
-  Convert Hive SQL to Databricks SQL using LLM.
-  Focus on fixing syntax and compatibility issues while preserving original logic.
-  Only return valid Databricks SQL without explanations or markdown.
-
-rules: |
-  - ONLY return valid Databricks SQL
-  - DO NOT add explanations or comments
-  - DO NOT add markdown (no ```sql)
-  - DO NOT change business logic
-  - ONLY fix statements related to issues
-  - Keep output minimal and executable
-  - If unsure, return the original SQL without changes
-  - DO NOT remove partition logic
-  - DO NOT change table behavior
-  - ONLY modify statements that contain issues
-  - DO NOT modify unrelated statements
-  - PRESERVE structure of other statements exactly
-  - FIX only syntax incompatibilities
-  - DO NOT skip required transformations
-
-template: |
-  Input SQL:
-  {code}
-
-  Issues detected:
-  {issues}
-
-  You MUST fix the issues if possible.
-
-  Output only SQL.
-```
-
-When multiple statements are passed, they are marked with `-- STATEMENT_ID: idx` for precise parsing of LLM output.
-
-### `dummy_data.py`
-
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `generate_rows` | `(schema: Dict[str, str], n: int) -> List[Dict]` | Generate `n` synthetic rows for a `{col: hive_type}` schema using Faker |
-| `register_temp_tables` | `(spark, tables: Dict[str, Dict], n: int)` | Register each table as a PySpark temp view with `n` dummy rows |
-
-Supported Hive types: `INT`, `BIGINT`, `SMALLINT`, `TINYINT`, `FLOAT`, `DOUBLE`, `DECIMAL`, `STRING`, `VARCHAR`, `CHAR`, `BOOLEAN`, `DATE`, `TIMESTAMP`, `BINARY`.
-
-### `sql_validator.py`
-
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `validate_transpilation` | `(spark, original_sql, transpiled_sql) -> ValidationResult` | Execute both SQL strings in local PySpark, compare row counts, schema, and sample data |
-
-`ValidationResult` fields: `passed`, `row_count_match`, `schema_match`, `data_match`, `original_count`, `transpiled_count`, `original_columns`, `transpiled_columns`, `diff_report`, `error`.
-
-### `oozie_converter.py`
-
-| Function | Signature | Description |
-|---|---|---|
-| `parse_workflow` | `(xml_str) -> WorkflowGraph` | Parse workflow XML into a `WorkflowGraph` (actions, forks, joins, decisions, kills, start node, global config) |
-| `parse_coordinator` | `(xml_str) -> CoordinatorSchedule` | Parse coordinator XML into a `CoordinatorSchedule` (name, frequency, start, end, timezone, app-path, quartz cron) |
-| `parse_bundle` | `(xml_str) -> List[BundleEntry]` | Parse bundle XML into coordinator app-path references |
-| `workflow_to_dict` | `(xml_str, job_name) -> Dict` | Convert workflow XML to a Databricks Jobs API 2.1 dict (with `_`-prefixed annotation keys) |
-| `workflow_to_json` | `(xml_str, job_name) -> str` | `workflow_to_dict` + strip annotations + `json.dumps` |
-| `coordinator_to_dict` | `(coord_xml, workflow_xml?) -> (Dict, List[str])` | Convert coordinator XML to a scheduled job dict; optionally merge a workflow XML; returns `(payload, warnings)` |
-| `bundle_to_dicts` | `(bundle_xml, coordinator_xmls?) -> List[Tuple]` | Convert bundle XML to a list of `(name, payload, warnings)` tuples |
-| `convert_oozie_file_set` | `(files: Dict[str,str]) -> Dict` | **Main multi-file entry point**: categorise XMLs, convert workflows first, match coordinators to workflows, return `{jobs, workflow_job_map, links, warnings}` |
-| `_match_coordinator_to_workflow` | `(app_path, workflow_files) -> str\|None` | Match coordinator `<app-path>` to an uploaded workflow by basename (exact then hyphen↔underscore normalised) |
-| `_strip_annotation_keys` | `(obj) -> obj` | Recursively remove `_`-prefixed keys from dicts before serialisation |
-| `convert_xml` | `(xml_str) -> str` | Dispatch helper: routes to `workflow_to_json` or `coordinator_to_dict` based on root element |
-
-**Key dataclasses:** `WorkflowGraph`, `OozieAction`, `OozieFork`, `OozieJoin`, `OozieDecision`, `OozieKill`, `CoordinatorSchedule`, `BundleEntry`.
-
-### `pyspark_migrator.py`
-
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `migrate_pyspark_script` | `(code: str) -> MigrationResult` | Rewrite HDFS paths to DBFS paths and flag deprecated API usage |
-| `migrate_notebook` | `(ipynb_json: str) -> MigrationResult` | Migrate all code cells in a Jupyter notebook JSON |
-
-Detected patterns: `hdfs://` paths, `sc.textFile()`, `SparkContext()`, `SparkConf()`, `.foreachPartition()`, `.collect()` on large DataFrames, excessive `.repartition()`.
-
-### `hdfs_migrator.py`
-
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `parse_hdfs_listing` | `(text: str) -> List[HDFSEntry]` | Parse `hdfs dfs -ls -R` output |
-| `generate_fs_cp_script` | `(entries, hdfs_host) -> str` | Generate `databricks fs cp` shell script |
-| `generate_dbutils_script` | `(entries, hdfs_host) -> str` | Generate `dbutils.fs.cp()` Python notebook cells |
-| `generate_unity_catalog_script` | `(entries, catalog, schema, ...) -> str` | Generate `CREATE VOLUME` statements for Unity Catalog |
-| `rewrite_sql_locations` | `(sql, target, ...) -> str` | Rewrite `LOCATION 'hdfs://...'` to `dbfs:/` or `abfss://` |
+| Module | Entry Point | Returns |
+|--------|------------|---------|
+| `sql_transpiler.py` | `run_hive_transpiler(src_dir, out_dir, err_file, target, ...)` | `(ok, stdout, stderr)` |
+| `oozie_converter.py` | `convert_oozie_file_set(files: Dict[str,str])` | `{jobs, workflow_job_map, links, warnings}` |
+| `ssrs_converter.py` | `convert_ssrs_file_set(files: Dict[str,str])` | `{notebooks, assessments, warnings}` |
+| `talend_converter.py` | `convert_talend_file_set(files: Dict[str,str])` | `{notebooks, warnings}` |
+| `databricks_service.py` | `DatabricksClient.from_app_context()` | `DatabricksClient` instance |
 
 ---
 
@@ -677,19 +260,28 @@ Detected patterns: `hdfs://` paths, `sc.textFile()`, `SparkContext()`, `SparkCon
 ```
 files/
 ├── source_hive/
-│   ├── 01_setup_database.hql       # CREATE DATABASE / CREATE TABLE DDL
-│   ├── 02_insert_data.hql          # INSERT statements with Hive syntax
-│   ├── 03_transform_data.hql       # SELECT / INSERT OVERWRITE transforms
-│   └── 04_maintenance.hql          # ANALYZE TABLE, MSCK REPAIR, etc.
+│   ├── 01_setup_database.hql        # CREATE DATABASE / CREATE TABLE DDL
+│   ├── 02_insert_data.hql           # INSERT with Hive syntax
+│   ├── 03_transform_data.hql        # SELECT / INSERT OVERWRITE transforms
+│   └── 04_maintenance.hql           # ANALYZE TABLE, MSCK REPAIR, etc.
 ├── source_spark/
-│   ├── pyspark-arraytype.py        # ArrayType column operations
-│   ├── pyspark-cast-column.py      # Column casting patterns
-│   └── pyspark-collect.py          # .collect() anti-pattern example
+│   ├── pyspark-arraytype.py
+│   ├── pyspark-cast-column.py
+│   └── pyspark-collect.py
 ├── sample_oozie/
-│   └── workflow.xml                # 4-action retail ETL pipeline (hive → hive → spark → shell)
-│                                   # Upload alone (standalone) or with a coordinator.xml to test linking
+│   └── workflow.xml                 # 4-action retail ETL pipeline
+├── sample_ssis/
+│   └── RetailETL.dtsx               # OLE DB Source → Derived Column → Split → Destination
+├── sample_ssrs/
+│   ├── SalesOrderReport.rdl         # 2 Text datasets — auto-convertible
+│   └── InventoryStoredProc.rdl      # StoredProcedure + VB.NET — assessment JSON only
+├── sample_talend/
+│   ├── CustomerETL.item             # MySQL → tMap → tFilterRow → DeltaLake + tLogRow (reject)
+│   ├── SalesAggregation.item        # Oracle × 2 → tJoin → tSortRow → tAggregateRow → CSV
+│   ├── HiveToSnowflakeMigration.item # HiveInput → tMap → tReplaceList → Snowflake + Parquet/S3
+│   └── FileIngestionPipeline.item   # CSV + JSON + Parquet → tUnite → tMap → HiveOutput
 └── sample_hdfs/
-    └── hdfs_listing.txt            # Sample hdfs -ls -R output (12 entries)
+    └── hdfs_listing.txt             # Sample hdfs -ls -R output
 ```
 
 ---
@@ -718,100 +310,50 @@ cd lb_migration_platform_ui
 streamlit run app.py
 ```
 
-The app will open at `http://localhost:8501`.
+The app opens at `http://localhost:8501`.
 
 ### Databricks Apps Deployment
 
-Upload the `lb_migration_platform_ui/` directory as a Databricks App. The `requirements.txt` is used for dependency installation. Lakebridge must be available in the app's execution environment.
+Upload `lb_migration_platform_ui/` as a Databricks App. `requirements.txt` is used for dependency installation. Lakebridge must be available in the app's execution environment.
 
 ### Configuring LLM Enhancement (Optional)
 
-HiveSQL transpilation can optionally use an LLM to fix problematic statements. This requires a Databricks workspace with a serving endpoint or an external API-compatible LLM service.
+HiveSQL Stage 3 can use an LLM to auto-fix ERROR/BLOCKER statements. Configure in the **Settings** tab:
 
-**Step 1: Get Databricks Credentials**
-- Workspace URL: `https://<workspace>.cloud.databricks.com`
-- Personal Access Token: Generate from Databricks Account Console
-- Serving Endpoint (if using Databricks):
-  - Ensure Claude model is deployed in your workspace
-  - Endpoint path: `/api/2.0/serving-endpoints/chat/completions`
+- **LLM Endpoint**: `https://<workspace>.cloud.databricks.com/api/2.0/serving-endpoints/chat/completions`
+- **LLM API Key**: Databricks Personal Access Token
+- **Model**: `databricks-claude-sonnet-4-6` (default)
 
-**Step 2: Configure in Streamlit App**
-In the **Settings** tab, you'll see optional LLM fields:
-- **LLM Endpoint**: Full URL to Claude endpoint (Databricks supported)
-- **LLM API Key**: Personal Access Token
-
-When both are filled, HiveSQL Transpiler automatically uses LLM for Stage 3 enhancement.
-
-**Step 3: Test LLM Connection**
-Run a test transpilation with a problematic HiveSQL file:
-- Upload file with ERROR/BLOCKER issues
-- Check the LLM logs in the app output
-- Verify fixed SQL in the result
-
-**Example with Databricks Claude:**
-```
-Endpoint: https://my-workspace.cloud.databricks.com/api/2.0/serving-endpoints/chat/completions
-API Key: <personal-access-token>
-Model: databricks-claude-sonnet-4-6 (default)
-```
-
-**LLM Request Limits:**
-- Timeout: 300 seconds (5 minutes per batch)
-- Max retries: 3 (exponential backoff)
-- Max tokens: 12,000 per response
-- Max statement batch size: All ERROR/BLOCKER statements in one file
-
-**Fallback Behavior:**
-If LLM is unavailable or fails:
-1. Transpiler continues with Stage 2 (rule-based) output
-2. Issues remain flagged for manual review
-3. Original code fallback if LLM timeout
-4. No data loss — errors logged, not thrown
+Falls back silently to rule-based output on any LLM failure.
 
 ---
 
 ## Running Tests
 
 ```bash
-# From the Lb-Migration-Platform/ directory
-
-# Install dev dependencies (includes Faker, pytest)
+# From Lb-Migration-Platform/
 pip install -r lb_migration_platform_ui/requirements-dev.txt
-
-# Run all tests
 pytest tests/ -v
 
-# Run a specific module
+# Individual modules
 pytest tests/test_sql_transpiler.py -v
 pytest tests/test_oozie_converter.py -v
+pytest tests/test_ssrs_converter.py -v
 ```
 
-### Test Coverage by Module
+### Test Coverage
 
 | Test File | Tests | What It Covers |
 |-----------|-------|----------------|
-| `test_sql_transpiler.py` | 11+ | `split_sql_statements`, `handle_hive_variables`, `create_table_handler`, `run_hive_transpiler` — statement parsing, variable extraction, CREATE TABLE normalization, full transpilation pipeline, clause stripping, transformations |
-| `test_dummy_data.py` | 8 | `generate_rows`, `register_temp_tables` — type mapping, row counts, Spark temp view registration |
-| `test_sql_validator.py` | 5 | `validate_transpilation` — pass/fail detection, schema mismatch, row count diff, invalid SQL handling |
-| `test_oozie_converter.py` | 10 | `parse_workflow`, `to_databricks_job` — action types, dependency graph, output structure |
-| `test_pyspark_migrator.py` | 9 | `migrate_pyspark_script` — HDFS path rewriting, deprecated API warnings |
+| `test_sql_transpiler.py` | 11+ | Statement splitting, variable extraction, CREATE TABLE normalisation, full 3-stage pipeline |
+| `test_dummy_data.py` | 8 | `generate_rows`, `register_temp_tables` — Hive type mapping, PySpark temp views |
+| `test_sql_validator.py` | 5 | Pass/fail detection, schema mismatch, row count diff, invalid SQL |
+| `test_oozie_converter.py` | 10 | Action types, dependency graph, coordinator linking, cluster rules |
+| `test_ssrs_converter.py` | 28 | RDL parsing, dataset classification, T-SQL flagging, assessment JSON structure |
+| `test_pyspark_migrator.py` | 9 | HDFS path rewriting, deprecated API detection |
 | `test_hdfs_migrator.py` | 9 | `parse_hdfs_listing`, all script generators, `rewrite_sql_locations` |
 
-> SQL Validator tests start a local PySpark session (JVM startup ~20-30s on first run). Subsequent test runs reuse the session-scoped fixture and are faster.
-
-**Enhanced sql_transpiler.py Tests:**
-The transpiler module now tests:
-- Line-aware SQL statement splitting with comment preservation
-- Multi-line comment handling (`/* */` and `--`)
-- Quoted string and identifier protection
-- Hive variable extraction and normalization
-- SET statement filtering (configs vs. user variables)
-- CREATE TABLE normalization (EXTERNAL, CTAS, USING DELTA, LOCATION)
-- Issue categorization (BLOCKER, ERROR, WARNING, INFO)
-- Function rewrites (NVL, FROM_UNIXTIME, UNIX_TIMESTAMP, MAPJOIN)
-- Clause stripping (ROW FORMAT, SERDE, STORED AS, TBLPROPERTIES, etc.)
-- Statement-level transpilation with error handling
-- Full pipeline execution (all three stages)
+> PySpark tests start a local JVM (~20-30 s first run). Subsequent runs reuse the session-scoped fixture.
 
 ---
 
@@ -820,41 +362,44 @@ The transpiler module now tests:
 ```
 Lb-Migration-Platform/
 ├── lb_migration_platform_ui/
-│   ├── app.py                       # Main Streamlit app (~1500 lines)
-│   ├── requirements.txt             # Runtime dependencies
-│   ├── requirements-dev.txt         # Dev/test dependencies
+│   ├── app.py                          # Main Streamlit app
+│   ├── requirements.txt                # Runtime dependencies
+│   ├── requirements-dev.txt            # Dev/test dependencies
 │   └── modules/
-│       ├── __init__.py
-│       ├── sql_transpiler.py        # HiveSQL → Databricks SQL (3-stage pipeline)
-│       ├── llm_converter.py         # LLM-assisted SQL fixing (Databricks API)
-│       ├── sql_validator.py         # PySpark-based SQL validation
-│       ├── dummy_data.py            # Synthetic test data generation
-│       ├── oozie_converter.py       # Oozie XML → Databricks Jobs JSON
-│       ├── pyspark_migrator.py      # PySpark script modernization
-│       ├── hdfs_migrator.py         # HDFS path migration scripts
+│       ├── sql_transpiler.py           # HiveSQL → Databricks SQL (3-stage pipeline)
+│       ├── llm_converter.py            # LLM-assisted SQL fixing
+│       ├── sql_validator.py            # PySpark-based SQL validation
+│       ├── dummy_data.py               # Synthetic test data generation
+│       ├── oozie_converter.py          # Oozie XML → Databricks Jobs JSON
+│       ├── ssrs_converter.py           # SSRS .rdl → SQL notebooks + assessment JSON
+│       ├── talend_converter.py         # Talend .item → PySpark notebooks
+│       ├── databricks_service.py       # Workspace browse / file I/O
+│       ├── pyspark_migrator.py         # PySpark modernisation
+│       ├── hdfs_migrator.py            # HDFS migration scripts
 │       └── prompts/
-│           ├── __init__.py
-│           └── hivesql.yml          # LLM prompt template for HiveSQL fixing
+│           └── hivesql.yml             # LLM prompt template
 ├── tests/
-│   ├── conftest.py                  # Session-scoped SparkSession fixture
-│   ├── test_sql_transpiler.py       # Enhanced with split_sql_statements, handle_hive_variables, etc.
+│   ├── conftest.py
+│   ├── test_sql_transpiler.py
 │   ├── test_dummy_data.py
 │   ├── test_sql_validator.py
 │   ├── test_oozie_converter.py
+│   ├── test_ssrs_converter.py
 │   ├── test_pyspark_migrator.py
 │   └── test_hdfs_migrator.py
 ├── files/
-│   ├── source_hive/                 # Sample HiveQL files
-│   │   ├── 01_setup_database.hql
-│   │   ├── 02_insert_data.hql
-│   │   ├── 03_transform_data.hql
-│   │   └── 04_maintenance.hql
-│   ├── source_spark/                # Sample PySpark scripts
-│   ├── sample_oozie/                # Sample Oozie workflow XML
-│   └── sample_hdfs/                 # Sample HDFS listing
+│   ├── source_hive/
+│   ├── source_spark/
+│   ├── sample_oozie/
+│   ├── sample_ssis/
+│   ├── sample_ssrs/
+│   ├── sample_talend/
+│   └── sample_hdfs/
+├── docs/                               # Architecture diagrams, pitch deck, tech reference
 ├── pytest.ini
-├── CLAUDE.md                        # Project context for AI assistants
-└── README.md
+├── CLAUDE.md                           # Project context for AI assistants
+├── README.md
+└── SSIS_SSRS_MIGRATION.md              # SSIS & SSRS technical reference
 ```
 
 ---
