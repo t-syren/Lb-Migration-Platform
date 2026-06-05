@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from modules.oozie_converter import workflow_to_json, parse_workflow, coordinator_to_dict, parse_coordinator,convert_xml, convert_oozie_file_set, _strip_annotation_keys
 from modules.ssrs_converter import convert_ssrs_file_set as _convert_ssrs_file_set
+from modules.talend_converter import convert_talend_file_set
 
 from modules.databricks_service import DatabricksClient, get_databricks_credentials
 from modules.sql_transpiler import run_hive_transpiler
@@ -134,6 +135,7 @@ TRANSPILER_DIALECTS: dict[str, dict] = {
     "Synapse":             {"cli": "synapse",            "exts": ["sql", "ddl", "dml", "json"]},
     "Teradata":            {"cli": "teradata",           "exts": ["sql", "bteq", "tdl", "tpt", "ddl", "dml"]},
     "Oozie (Workflow)":    {"cli": "oozie",              "exts": ["xml"],                               "oozie": True},
+    "Talend":              {"cli": "talend",             "exts": ["item", "xml"],                       "talend": True},
 }
 
 TRANSPILER_TARGETS = {
@@ -1522,6 +1524,57 @@ def run_ssrs_converter(
     return generated > 0, stdout, "\n".join(errors) if errors else "", results
 
 
+def run_talend_converter(
+    src_dir: str,
+    out_dir: str,
+    err_file: str,
+) -> tuple[bool, str, str, dict]:
+    """
+    Convert Talend .item XML files to Databricks PySpark notebooks (.py).
+
+    Returns (ok, stdout, stderr, talend_results) where talend_results is the
+    dict returned by convert_talend_file_set.
+    """
+    src_root = Path(src_dir)
+    out_root = Path(out_dir)
+
+    all_items: dict[str, str] = {}
+    for ext in ("*.item", "*.xml"):
+        for src_file in sorted(src_root.rglob(ext)):
+            if src_file.is_file():
+                rel = str(src_file.relative_to(src_root))
+                all_items[rel] = src_file.read_text(encoding="utf-8", errors="replace")
+
+    if not all_items:
+        return False, "Talend converter: no .item or .xml files found.", "", {}
+
+    results = convert_talend_file_set(all_items)
+
+    errors: list[str] = list(results["warnings"])
+    generated = 0
+
+    for job_name, code in results["notebooks"].items():
+        out_file = out_root / f"{job_name}.py"
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            out_file.write_text(code, encoding="utf-8")
+            generated += 1
+        except Exception as exc:
+            errors.append(f"{job_name}: could not write — {exc}")
+
+    if errors:
+        Path(err_file).write_text("\n".join(errors), encoding="utf-8")
+
+    n_in = len(all_items)
+    n_nb = len(results["notebooks"])
+    stdout = (
+        f"Talend converter: {n_in} file(s) read → "
+        f"{n_nb} PySpark notebook(s), {generated} file(s) written."
+    )
+
+    return generated > 0, stdout, "\n".join(errors) if errors else "", results
+
+
 def build_file_tree_html(directory: str) -> tuple[str, int, int]:
     """Return an HTML file-tree string plus (n_files, n_bytes)."""
     root = Path(directory)
@@ -1924,7 +1977,7 @@ elif selected_page == "Docs":
     # ── Transpiler dialects table ─────────────────────────────────────────────
     st.markdown("""
     <div style="font-size:0.7rem;font-weight:700;color:#94a3b8;letter-spacing:0.1em;
-                text-transform:uppercase;margin-bottom:0.75rem;">Transpiler — 13 Supported Dialects</div>
+                text-transform:uppercase;margin-bottom:0.75rem;">Transpiler — 14 Supported Dialects</div>
     """, unsafe_allow_html=True)
 
     dialect_rows = [
@@ -1941,6 +1994,7 @@ elif selected_page == "Docs":
         ("Synapse",            "Databricks Labs Lakebridge",   "PySpark / SparkSQL",          ".sql .ddl .dml .json"),
         ("Teradata",           "Databricks Labs Lakebridge",   "PySpark / SparkSQL",          ".sql .bteq .tdl .tpt .ddl .dml"),
         ("Oozie (Workflow)",   "lxml (built-in parser)",       "Databricks Jobs JSON",        ".xml"),
+        ("Talend",             "Built-in talend_converter",    "PySpark Notebooks (.py)",     ".item .xml"),
     ]
 
     gs_table_rows = ""
@@ -2598,6 +2652,12 @@ elif selected_page == "Transpiler":
                 'border:1px solid rgba(251,191,36,0.2);border-radius:6px;padding:2px 7px;font-weight:600;">'
                 'Built-in engine (ssrs_converter) — outputs SQL notebooks + assessment JSON</span>'
             )
+        elif dialect_info.get("talend"):
+            _engine_badge = (
+                '<span style="font-size:0.72rem;background:rgba(251,191,36,0.06);color:#fbbf24;'
+                'border:1px solid rgba(251,191,36,0.2);border-radius:6px;padding:2px 7px;font-weight:600;">'
+                'Built-in engine (talend_converter) — outputs Databricks PySpark notebooks</span>'
+            )
         elif dialect_info.get("custom"):
             _engine_badge = (
                 '<span style="font-size:0.72rem;background:rgba(251,191,36,0.06);color:#fbbf24;'
@@ -2645,6 +2705,17 @@ elif selected_page == "Transpiler":
                 'one .sql notebook and one assessment.json per report</div>',
                 unsafe_allow_html=True,
             )
+        elif dialect_info.get("talend"):
+            # Talend custom engine outputs PySpark notebooks
+            target_cli = "PYSPARK"
+            selected_target_label = "PySpark  (Python notebooks / scripts)"
+            st.markdown(
+                '<div style="background:rgba(6,182,212,0.06);border:1px solid rgba(6,182,212,0.2);border-radius:8px;'
+                'padding:0.6rem 1rem;font-size:0.82rem;color:#67e8f9;font-weight:500;">'
+                'Output: <strong>Databricks PySpark Notebooks (.py)</strong> — '
+                'one PySpark notebook per Talend job (.item file)</div>',
+                unsafe_allow_html=True,
+            )
         elif dialect_info.get("sparksql_only"):
             # BladeBridge SSIS only supports SparkSQL — no target picker needed
             target_cli = "SPARKSQL"
@@ -2681,8 +2752,8 @@ elif selected_page == "Transpiler":
             )
             target_cli = TRANSPILER_TARGETS[selected_target_label]
 
-        # Optional settings (not applicable for Oozie, SSRS, or sparksql_only)
-        if not dialect_info.get("oozie") and not dialect_info.get("sparksql_only") and not dialect_info.get("ssrs"):
+        # Optional settings (not applicable for Oozie, SSRS, Talend, or sparksql_only)
+        if not dialect_info.get("oozie") and not dialect_info.get("sparksql_only") and not dialect_info.get("ssrs") and not dialect_info.get("talend"):
             with st.expander("Advanced options", expanded=False):
                 catalog_name = st.text_input(
                     "Catalog name (optional)",
@@ -2953,6 +3024,16 @@ elif selected_page == "Transpiler":
                         f"**{auto_conv}/{n_as}** auto-convertible · "
                         f"**{n_nb}** SQL notebook(s) generated"
                     )
+                elif dialect_info.get("talend"):
+                    # Built-in Talend → PySpark notebook converter
+                    tp_ok, tp_stdout, tp_stderr, _talend_results = run_talend_converter(
+                        src_dir=tp_src_dir,
+                        out_dir=tp_out_dir,
+                        err_file=tp_err_file,
+                    )
+                    st.session_state["tp_talend_results"] = _talend_results
+                    n_nb = len(_talend_results.get("notebooks", {}))
+                    st.write(f"**{n_nb}** PySpark notebook(s) generated")
                 elif dialect_info.get("custom"):
                     # Custom in-process transpiler (HiveSQL via sqlglot → Databricks SQL)
                     # Get LLM credentials from environment or session state
@@ -3011,6 +3092,8 @@ elif selected_page == "Transpiler":
                 "oozie_links": st.session_state.get("tp_oozie_links", []),
                 "is_ssrs": bool(dialect_info.get("ssrs")),
                 "ssrs_results": st.session_state.get("tp_ssrs_results", {}),
+                "is_talend": bool(dialect_info.get("talend")),
+                "talend_results": st.session_state.get("tp_talend_results", {}),
                 "llm_files_sent": llm_counts[0],
                 "llm_statements_replaced": llm_counts[1],
                 "llm_failures": llm_counts[2],
@@ -3084,6 +3167,30 @@ elif selected_page == "Transpiler":
                     - **VB.NET code blocks** are preserved as comments — rewrite as Python UDFs or SQL expressions.
                     - **Parameters** appear as `-- DECLARE` comments — replace with Databricks widgets (`dbutils.widgets`) or job parameters.
                     - **Report layout** (visual formatting, charts) is not converted — use Databricks Dashboards or Lakeview SQL for visual output.
+                    - Use the **Download All Output Files** button below to get the ZIP, or upload directly to Databricks workspace.
+                    """)
+
+                elif dialect_info.get("talend"):
+                    talend_results = st.session_state.get("tp_talend_results", {})
+                    notebooks = talend_results.get("notebooks", {})
+                    if notebooks:
+                        st.markdown(
+                            f'<div style="background:rgba(6,182,212,0.06);border:1px solid rgba(6,182,212,0.2);border-radius:8px;'
+                            f'padding:0.75rem 1rem;margin-bottom:0.75rem;font-size:0.88rem;color:#67e8f9;">'
+                            f'<strong>{len(notebooks)}</strong> PySpark notebook(s) generated — '
+                            f'one .py file per Talend job</div>',
+                            unsafe_allow_html=True,
+                        )
+                    st.markdown("**Talend Conversion Notes**")
+                    with st.expander("ℹ️ View details"):
+                        st.markdown("""
+                    - **PySpark Notebooks** (`.py`) contain one cell per Talend component in execution order.
+                    - **tDBInput / tDBOutput** components are converted to `spark.read/write.format("jdbc")` — update JDBC URLs, credentials, and use Databricks secrets for passwords.
+                    - **tHiveInput / tHiveOutput / tDeltaLakeOutput** are converted to `spark.table()` / `df.write.format("delta")`.
+                    - **tMap** components generate passthrough code — add transformation expressions using `F.expr()` or `withColumn()` for each mapping rule.
+                    - **tFilterRow / tSortRow / tAggregateRow / tJoin** contain `# TODO` placeholders — replace with the actual PySpark expressions.
+                    - **EL expressions** (`context.variable`, `globalMap.get()`) are preserved verbatim — replace with Databricks widgets (`dbutils.widgets`) or job parameters.
+                    - **Connection metadata** (column types) is used where available; add schema enforcement with `StructType` if needed.
                     - Use the **Download All Output Files** button below to get the ZIP, or upload directly to Databricks workspace.
                     """)
 

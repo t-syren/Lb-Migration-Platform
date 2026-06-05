@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<talendfile xmlns:TalendProperties="http://www.talend.org/properties"
+            xmlns:xmi="http://www.omg.org/XMI"
+            xmi:version="2.0"
+            Author="data_engineer"
+            DefaultContext="Default"
+            JobType="standard"
+            Language="JAVA"
+            Version="0.1">
+  <!-- ═══════════════════════════════════════════════════════
+       Job: HiveToSnowflakeMigration
+       Description: Read partitioned Hive table, filter and
+                    replace values, write to Snowflake staging
+                    and also archive to Parquet on S3.
+       Flow:
+         tHiveInput_1 → tMap_1 → tReplaceList_1 → tFilterRow_1 ─┬→ tSnowflakeOutput_1
+                                                                  └→ tFileOutputParquet_1
+       ═══════════════════════════════════════════════════════ -->
+
+  <!-- SOURCE: Hive partitioned events table -->
+  <node componentName="tHiveInput"
+        componentVersion="0.26"
+        label="tHiveInput_1"
+        posX="64" posY="224">
+    <elementParameter field="TECHNICAL" name="UNIQUE_NAME"  value="tHiveInput_1"/>
+    <elementParameter field="TEXT"      name="HOST"         value="&quot;hive-metastore.hadoop.example.com&quot;"/>
+    <elementParameter field="TEXT"      name="PORT"         value="&quot;10000&quot;"/>
+    <elementParameter field="TEXT"      name="DATABASE"     value="&quot;warehouse&quot;"/>
+    <elementParameter field="TEXT"      name="USERNAME"     value="&quot;hive&quot;"/>
+    <elementParameter field="PASSWORD"  name="PASSWORD"     value="&quot;&quot;"/>
+    <elementParameter field="TEXT"      name="TABLE_NAME"   value="&quot;warehouse.web_events&quot;"/>
+    <elementParameter field="MEMO_SQL"  name="QUERY"        value="&quot;SELECT event_id, user_id, session_id, event_type, page_url, referrer, device_type, country_code, event_ts, revenue FROM warehouse.web_events WHERE dt &gt;= &apos;${context.start_date}&apos; AND dt &lt;= &apos;${context.end_date}&apos;&quot;"/>
+    <metadata connector="FLOW" label="tHiveInput_1" name="tHiveInput_1">
+      <column comment="" key="true"  length="36"  name="event_id"     nullable="false" talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="36"  name="user_id"      nullable="true"  talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="36"  name="session_id"   nullable="true"  talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="30"  name="event_type"   nullable="true"  talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="500" name="page_url"     nullable="true"  talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="500" name="referrer"     nullable="true"  talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="20"  name="device_type"  nullable="true"  talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="3"   name="country_code" nullable="true"  talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="26"  name="event_ts"     nullable="true"  talendType="id_Timestamp"  type="TIMESTAMP"/>
+      <column comment="" key="false" length="12"  name="revenue"      nullable="true"  talendType="id_BigDecimal" type="DECIMAL" precision="4"/>
+    </metadata>
+  </node>
+
+  <!-- TRANSFORM: enrich device_category, clean URL -->
+  <node componentName="tMap"
+        componentVersion="0.13"
+        label="tMap_1"
+        posX="256" posY="224">
+    <elementParameter field="TECHNICAL" name="UNIQUE_NAME" value="tMap_1"/>
+    <!-- Mapping:
+         device_category = (row1.device_type in ["mobile","tablet"]) ? "MOBILE" : "DESKTOP"
+         page_path       = StringHandling.BEFORE(row1.page_url, "?")
+         has_revenue     = row1.revenue != null && row1.revenue > 0
+    -->
+    <metadata connector="FLOW" label="out1" name="out1">
+      <column comment="" key="true"  length="36"  name="event_id"       nullable="false" talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="36"  name="user_id"        nullable="true"  talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="36"  name="session_id"     nullable="true"  talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="30"  name="event_type"     nullable="true"  talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="500" name="page_path"      nullable="true"  talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="20"  name="device_type"    nullable="true"  talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="10"  name="device_category" nullable="true" talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="3"   name="country_code"   nullable="true"  talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="26"  name="event_ts"       nullable="true"  talendType="id_Timestamp"  type="TIMESTAMP"/>
+      <column comment="" key="false" length="12"  name="revenue"        nullable="true"  talendType="id_BigDecimal" type="DECIMAL" precision="4"/>
+      <column comment="" key="false" length="1"   name="has_revenue"    nullable="true"  talendType="id_Boolean"    type="BOOLEAN"/>
+    </metadata>
+  </node>
+
+  <!-- REPLACE: normalise country codes (UK → GB, USA → US) -->
+  <node componentName="tReplaceList"
+        componentVersion="0.5"
+        label="tReplaceList_1"
+        posX="432" posY="224">
+    <elementParameter field="TECHNICAL" name="UNIQUE_NAME"    value="tReplaceList_1"/>
+    <elementParameter field="TEXT"      name="COLUMN"         value="&quot;country_code&quot;"/>
+    <elementParameter field="TABLE"     name="REPLACE_ENTRIES" value="[{&quot;OLD&quot;:&quot;UK&quot;,&quot;NEW&quot;:&quot;GB&quot;},{&quot;OLD&quot;:&quot;USA&quot;,&quot;NEW&quot;:&quot;US&quot;},{&quot;OLD&quot;:&quot;DE&quot;,&quot;NEW&quot;:&quot;DE&quot;}]"/>
+    <metadata connector="FLOW" label="tReplaceList_1" name="tReplaceList_1">
+      <column comment="" key="true"  length="36"  name="event_id"       nullable="false" talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="36"  name="user_id"        nullable="true"  talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="36"  name="session_id"     nullable="true"  talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="30"  name="event_type"     nullable="true"  talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="500" name="page_path"      nullable="true"  talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="10"  name="device_category" nullable="true" talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="3"   name="country_code"   nullable="true"  talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="26"  name="event_ts"       nullable="true"  talendType="id_Timestamp"  type="TIMESTAMP"/>
+      <column comment="" key="false" length="12"  name="revenue"        nullable="true"  talendType="id_BigDecimal" type="DECIMAL" precision="4"/>
+      <column comment="" key="false" length="1"   name="has_revenue"    nullable="true"  talendType="id_Boolean"    type="BOOLEAN"/>
+    </metadata>
+  </node>
+
+  <!-- FILTER: exclude bot traffic (event_type != 'bot_ping') -->
+  <node componentName="tFilterRow"
+        componentVersion="0.17"
+        label="tFilterRow_1"
+        posX="608" posY="224">
+    <elementParameter field="TECHNICAL" name="UNIQUE_NAME" value="tFilterRow_1"/>
+    <elementParameter field="TEXT"      name="CONDITIONS"  value="[{&quot;columnName&quot;:&quot;event_type&quot;,&quot;function&quot;:&quot;NOT_EQUALS&quot;,&quot;value&quot;:&quot;bot_ping&quot;,&quot;operator&quot;:&quot;&amp;&amp;&quot;}]"/>
+    <metadata connector="FLOW" label="tFilterRow_1" name="tFilterRow_1">
+      <column comment="" key="true"  length="36"  name="event_id"       nullable="false" talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="36"  name="user_id"        nullable="true"  talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="36"  name="session_id"     nullable="true"  talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="30"  name="event_type"     nullable="true"  talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="500" name="page_path"      nullable="true"  talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="10"  name="device_category" nullable="true" talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="3"   name="country_code"   nullable="true"  talendType="id_String"     type="STRING"/>
+      <column comment="" key="false" length="26"  name="event_ts"       nullable="true"  talendType="id_Timestamp"  type="TIMESTAMP"/>
+      <column comment="" key="false" length="12"  name="revenue"        nullable="true"  talendType="id_BigDecimal" type="DECIMAL" precision="4"/>
+      <column comment="" key="false" length="1"   name="has_revenue"    nullable="true"  talendType="id_Boolean"    type="BOOLEAN"/>
+    </metadata>
+  </node>
+
+  <!-- OUTPUT 1: Snowflake staging table -->
+  <node componentName="tSnowflakeOutput"
+        componentVersion="0.10"
+        label="tSnowflakeOutput_1"
+        posX="832" posY="160">
+    <elementParameter field="TECHNICAL" name="UNIQUE_NAME" value="tSnowflakeOutput_1"/>
+    <elementParameter field="TEXT"      name="HOST"        value="&quot;myaccount.snowflakecomputing.com&quot;"/>
+    <elementParameter field="TEXT"      name="PORT"        value="&quot;443&quot;"/>
+    <elementParameter field="TEXT"      name="DATABASE"    value="&quot;ANALYTICS&quot;"/>
+    <elementParameter field="TEXT"      name="USERNAME"    value="&quot;etl_svc&quot;"/>
+    <elementParameter field="PASSWORD"  name="PASSWORD"    value="&quot;${context.sf_password}&quot;"/>
+    <elementParameter field="TEXT"      name="TABLE"       value="&quot;STAGING.WEB_EVENTS&quot;"/>
+    <elementParameter field="TEXT"      name="ACTION"      value="&quot;INSERT&quot;"/>
+    <elementParameter field="TEXT"      name="WAREHOUSE"   value="&quot;COMPUTE_WH&quot;"/>
+  </node>
+
+  <!-- OUTPUT 2: Parquet archive on S3 -->
+  <node componentName="tFileOutputParquet"
+        componentVersion="0.5"
+        label="tFileOutputParquet_1"
+        posX="832" posY="320">
+    <elementParameter field="TECHNICAL" name="UNIQUE_NAME" value="tFileOutputParquet_1"/>
+    <elementParameter field="TEXT"      name="FILENAME"    value="&quot;s3a://data-lake-archive/web_events/dt=${context.start_date}/events.parquet&quot;"/>
+  </node>
+
+  <!-- Connections -->
+  <connection connectorName="FLOW" label="raw"       lineStyle="0" source="tHiveInput_1"     target="tMap_1"/>
+  <connection connectorName="FLOW" label="enriched"  lineStyle="0" source="tMap_1"           target="tReplaceList_1"/>
+  <connection connectorName="FLOW" label="normalised" lineStyle="0" source="tReplaceList_1"  target="tFilterRow_1"/>
+  <connection connectorName="FLOW" label="to_sf"     lineStyle="0" source="tFilterRow_1"     target="tSnowflakeOutput_1"/>
+  <connection connectorName="FLOW" label="to_s3"     lineStyle="0" source="tFilterRow_1"     target="tFileOutputParquet_1"/>
+</talendfile>

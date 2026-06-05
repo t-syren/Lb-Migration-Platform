@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<talendfile xmlns:TalendProperties="http://www.talend.org/properties"
+            xmlns:xmi="http://www.omg.org/XMI"
+            xmi:version="2.0"
+            Author="admin"
+            DefaultContext="Default"
+            JobType="standard"
+            Language="JAVA"
+            Version="0.1">
+  <!-- ═══════════════════════════════════════════════════════
+       Job: CustomerETL
+       Description: Read customer records from MySQL,
+                    clean/transform via tMap, filter active
+                    customers, write to Delta Lake.
+       Flow: tMysqlInput_1 → tMap_1 → tFilterRow_1 → tDeltaLakeOutput_1
+                                                  ↘ tLogRow_1  (reject flow)
+       ═══════════════════════════════════════════════════════ -->
+
+  <!-- SOURCE: MySQL customers table -->
+  <node componentName="tMysqlInput"
+        componentVersion="0.101"
+        label="tMysqlInput_1"
+        posX="64" posY="224">
+    <elementParameter field="TECHNICAL" name="UNIQUE_NAME"  value="tMysqlInput_1"/>
+    <elementParameter field="TEXT"      name="HOST"         value="&quot;crm-db.internal.example.com&quot;"/>
+    <elementParameter field="TEXT"      name="PORT"         value="&quot;3306&quot;"/>
+    <elementParameter field="TEXT"      name="DATABASE"     value="&quot;crm_prod&quot;"/>
+    <elementParameter field="TEXT"      name="USERNAME"     value="&quot;etl_user&quot;"/>
+    <elementParameter field="PASSWORD"  name="PASSWORD"     value="&quot;etl_pass_123&quot;"/>
+    <elementParameter field="MEMO_SQL"  name="QUERY"        value="&quot;SELECT customer_id, first_name, last_name, email, phone, country, signup_date, status, annual_revenue FROM customers WHERE signup_date &gt;= &apos;2020-01-01&apos;&quot;"/>
+    <elementParameter field="CHECK"     name="STARTABLE"    value="false"/>
+    <metadata connector="FLOW" label="tMysqlInput_1" name="tMysqlInput_1">
+      <column comment="" key="true"  length="11"  name="customer_id"    nullable="false" talendType="id_Integer"    type="INT"/>
+      <column comment="" key="false" length="50"  name="first_name"     nullable="true"  talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="50"  name="last_name"      nullable="true"  talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="120" name="email"          nullable="true"  talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="20"  name="phone"          nullable="true"  talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="3"   name="country"        nullable="true"  talendType="id_String"     type="CHAR"/>
+      <column comment="" key="false" length="10"  name="signup_date"    nullable="true"  talendType="id_Date"       type="DATE"    pattern="yyyy-MM-dd"/>
+      <column comment="" key="false" length="10"  name="status"         nullable="true"  talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="15"  name="annual_revenue" nullable="true"  talendType="id_BigDecimal" type="DECIMAL" precision="2"/>
+    </metadata>
+  </node>
+
+  <!-- TRANSFORM: normalise names, combine full_name, upper-case country -->
+  <node componentName="tMap"
+        componentVersion="0.13"
+        label="tMap_1"
+        posX="288" posY="224">
+    <elementParameter field="TECHNICAL" name="UNIQUE_NAME" value="tMap_1"/>
+    <elementParameter field="MEMO_SQL"  name="MAPPING_TYPE" value="&quot;STANDARD&quot;"/>
+    <!-- tMap expressions (simplified for converter):
+         full_name         = row1.first_name + " " + row1.last_name
+         email_lower       = row1.email.toLowerCase()
+         country_upper     = row1.country.toUpperCase()
+         revenue_tier      = row1.annual_revenue > 100000 ? "GOLD" : "STANDARD"
+    -->
+    <metadata connector="FLOW" label="out1" name="out1">
+      <column comment="" key="true"  length="11"  name="customer_id"   nullable="false" talendType="id_Integer"    type="INT"/>
+      <column comment="" key="false" length="101" name="full_name"      nullable="true"  talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="120" name="email_lower"    nullable="true"  talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="20"  name="phone"          nullable="true"  talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="3"   name="country_upper"  nullable="true"  talendType="id_String"     type="CHAR"/>
+      <column comment="" key="false" length="10"  name="signup_date"    nullable="true"  talendType="id_Date"       type="DATE"/>
+      <column comment="" key="false" length="10"  name="status"         nullable="true"  talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="15"  name="annual_revenue" nullable="true"  talendType="id_BigDecimal" type="DECIMAL" precision="2"/>
+      <column comment="" key="false" length="10"  name="revenue_tier"   nullable="true"  talendType="id_String"     type="VARCHAR"/>
+    </metadata>
+  </node>
+
+  <!-- FILTER: only keep ACTIVE customers -->
+  <node componentName="tFilterRow"
+        componentVersion="0.17"
+        label="tFilterRow_1"
+        posX="512" posY="224">
+    <elementParameter field="TECHNICAL" name="UNIQUE_NAME"  value="tFilterRow_1"/>
+    <elementParameter field="TEXT"      name="CONDITIONS"   value="[{&quot;columnName&quot;:&quot;status&quot;,&quot;function&quot;:&quot;EQUALS&quot;,&quot;value&quot;:&quot;ACTIVE&quot;,&quot;operator&quot;:&quot;||&quot;}]"/>
+    <elementParameter field="CHECK"     name="LOGICAL_OP"   value="&quot;AND&quot;"/>
+    <metadata connector="FLOW" label="tFilterRow_1" name="tFilterRow_1">
+      <column comment="" key="true"  length="11"  name="customer_id"   nullable="false" talendType="id_Integer"    type="INT"/>
+      <column comment="" key="false" length="101" name="full_name"      nullable="true"  talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="120" name="email_lower"    nullable="true"  talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="20"  name="phone"          nullable="true"  talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="3"   name="country_upper"  nullable="true"  talendType="id_String"     type="CHAR"/>
+      <column comment="" key="false" length="10"  name="signup_date"    nullable="true"  talendType="id_Date"       type="DATE"/>
+      <column comment="" key="false" length="10"  name="status"         nullable="true"  talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="15"  name="annual_revenue" nullable="true"  talendType="id_BigDecimal" type="DECIMAL" precision="2"/>
+      <column comment="" key="false" length="10"  name="revenue_tier"   nullable="true"  talendType="id_String"     type="VARCHAR"/>
+    </metadata>
+  </node>
+
+  <!-- OUTPUT (MAIN): Delta Lake table -->
+  <node componentName="tDeltaLakeOutput"
+        componentVersion="0.5"
+        label="tDeltaLakeOutput_1"
+        posX="736" posY="160">
+    <elementParameter field="TECHNICAL" name="UNIQUE_NAME" value="tDeltaLakeOutput_1"/>
+    <elementParameter field="TEXT"      name="PATH"        value="&quot;/mnt/delta/curated/customers&quot;"/>
+    <elementParameter field="TEXT"      name="ACTION"      value="&quot;INSERT_OR_UPDATE&quot;"/>
+    <elementParameter field="TEXT"      name="PARTITION_BY" value="&quot;country_upper&quot;"/>
+  </node>
+
+  <!-- OUTPUT (REJECT): Log rejected records -->
+  <node componentName="tLogRow"
+        componentVersion="0.6"
+        label="tLogRow_1"
+        posX="736" posY="320">
+    <elementParameter field="TECHNICAL" name="UNIQUE_NAME" value="tLogRow_1"/>
+    <elementParameter field="TEXT"      name="PRINT_SCHEMA" value="true"/>
+  </node>
+
+  <!-- Connections -->
+  <connection connectorName="FLOW"   label="row1"   lineStyle="0" source="tMysqlInput_1" target="tMap_1"/>
+  <connection connectorName="FLOW"   label="out1"   lineStyle="0" source="tMap_1"        target="tFilterRow_1"/>
+  <connection connectorName="FLOW"   label="main"   lineStyle="0" source="tFilterRow_1"  target="tDeltaLakeOutput_1"/>
+  <connection connectorName="REJECT" label="reject" lineStyle="0" source="tFilterRow_1"  target="tLogRow_1"/>
+</talendfile>

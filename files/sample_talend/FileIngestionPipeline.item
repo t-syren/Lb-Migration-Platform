@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<talendfile xmlns:TalendProperties="http://www.talend.org/properties"
+            xmlns:xmi="http://www.omg.org/XMI"
+            xmi:version="2.0"
+            Author="data_engineer"
+            DefaultContext="Default"
+            JobType="standard"
+            Language="JAVA"
+            Version="0.1">
+  <!-- ═══════════════════════════════════════════════════════
+       Job: FileIngestionPipeline
+       Description: Multi-source file ingestion — read CSV
+                    transactions and JSON product catalogue,
+                    union with legacy Parquet data, normalise,
+                    write to Hive and export error report CSV.
+       Flow:
+         tFileInputDelimited_1 (CSV transactions) ─┐
+         tFileInputJSON_1 (product JSON)            ├→ tUnite_1 → tMap_1 → tSortRow_1 ─┬→ tHiveOutput_1
+         tFileInputParquet_1 (legacy parquet)      ─┘                                   └→ tFileOutputDelimited_1 (error report)
+       ═══════════════════════════════════════════════════════ -->
+
+  <!-- SOURCE 1: Daily transaction CSV drop -->
+  <node componentName="tFileInputDelimited"
+        componentVersion="0.43"
+        label="tFileInputDelimited_1"
+        posX="64" posY="128">
+    <elementParameter field="TECHNICAL" name="UNIQUE_NAME"     value="tFileInputDelimited_1"/>
+    <elementParameter field="TEXT"      name="FILENAME"        value="&quot;${context.landing_zone}/transactions_&quot; + TalendDate.getDate(&quot;yyyyMMdd&quot;) + &quot;.csv&quot;"/>
+    <elementParameter field="TEXT"      name="FIELDSEPARATOR"  value="&quot;,&quot;"/>
+    <elementParameter field="CHECK"     name="HEADER"          value="1"/>
+    <elementParameter field="TEXT"      name="ROWSEPARATOR"    value="&quot;\n&quot;"/>
+    <elementParameter field="TEXT"      name="LIMIT"           value="&quot;-1&quot;"/>
+    <elementParameter field="CHECK"     name="TRIM_FIELDS"     value="true"/>
+    <metadata connector="FLOW" label="tFileInputDelimited_1" name="tFileInputDelimited_1">
+      <column comment="" key="true"  length="20"  name="txn_id"       nullable="false" talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="12"  name="product_code" nullable="true"  talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="10"  name="txn_date"     nullable="true"  talendType="id_Date"       type="DATE" pattern="dd/MM/yyyy"/>
+      <column comment="" key="false" length="10"  name="qty"          nullable="true"  talendType="id_Integer"    type="INT"/>
+      <column comment="" key="false" length="12"  name="amount"       nullable="true"  talendType="id_BigDecimal" type="DECIMAL" precision="2"/>
+      <column comment="" key="false" length="10"  name="currency"     nullable="true"  talendType="id_String"     type="CHAR"/>
+      <column comment="" key="false" length="50"  name="store_code"   nullable="true"  talendType="id_String"     type="VARCHAR"/>
+    </metadata>
+  </node>
+
+  <!-- SOURCE 2: Product catalogue JSON (REST API dump) -->
+  <node componentName="tFileInputJSON"
+        componentVersion="0.5"
+        label="tFileInputJSON_1"
+        posX="64" posY="256">
+    <elementParameter field="TECHNICAL" name="UNIQUE_NAME" value="tFileInputJSON_1"/>
+    <elementParameter field="TEXT"      name="FILENAME"    value="&quot;${context.ref_zone}/products.json&quot;"/>
+    <elementParameter field="TEXT"      name="JSON_QUERY"  value="&quot;$.products[*]&quot;"/>
+    <metadata connector="FLOW" label="tFileInputJSON_1" name="tFileInputJSON_1">
+      <column comment="" key="true"  length="20"  name="txn_id"       nullable="false" talendType="id_String" type="VARCHAR"/>
+      <column comment="" key="false" length="12"  name="product_code" nullable="true"  talendType="id_String" type="VARCHAR"/>
+      <column comment="" key="false" length="10"  name="txn_date"     nullable="true"  talendType="id_Date"   type="DATE"/>
+      <column comment="" key="false" length="10"  name="qty"          nullable="true"  talendType="id_Integer" type="INT"/>
+      <column comment="" key="false" length="12"  name="amount"       nullable="true"  talendType="id_BigDecimal" type="DECIMAL" precision="2"/>
+      <column comment="" key="false" length="10"  name="currency"     nullable="true"  talendType="id_String" type="CHAR"/>
+      <column comment="" key="false" length="50"  name="store_code"   nullable="true"  talendType="id_String" type="VARCHAR"/>
+    </metadata>
+  </node>
+
+  <!-- SOURCE 3: Legacy Parquet archive -->
+  <node componentName="tFileInputParquet"
+        componentVersion="0.5"
+        label="tFileInputParquet_1"
+        posX="64" posY="384">
+    <elementParameter field="TECHNICAL" name="UNIQUE_NAME" value="tFileInputParquet_1"/>
+    <elementParameter field="TEXT"      name="FILENAME"    value="&quot;${context.archive_zone}/legacy_transactions.parquet&quot;"/>
+    <metadata connector="FLOW" label="tFileInputParquet_1" name="tFileInputParquet_1">
+      <column comment="" key="true"  length="20"  name="txn_id"       nullable="false" talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="12"  name="product_code" nullable="true"  talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="10"  name="txn_date"     nullable="true"  talendType="id_Date"       type="DATE"/>
+      <column comment="" key="false" length="10"  name="qty"          nullable="true"  talendType="id_Integer"    type="INT"/>
+      <column comment="" key="false" length="12"  name="amount"       nullable="true"  talendType="id_BigDecimal" type="DECIMAL" precision="2"/>
+      <column comment="" key="false" length="10"  name="currency"     nullable="true"  talendType="id_String"     type="CHAR"/>
+      <column comment="" key="false" length="50"  name="store_code"   nullable="true"  talendType="id_String"     type="VARCHAR"/>
+    </metadata>
+  </node>
+
+  <!-- UNION: stack all three sources -->
+  <node componentName="tUnite"
+        componentVersion="0.5"
+        label="tUnite_1"
+        posX="288" posY="256">
+    <elementParameter field="TECHNICAL" name="UNIQUE_NAME" value="tUnite_1"/>
+    <metadata connector="FLOW" label="tUnite_1" name="tUnite_1">
+      <column comment="" key="true"  length="20"  name="txn_id"       nullable="false" talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="12"  name="product_code" nullable="true"  talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="10"  name="txn_date"     nullable="true"  talendType="id_Date"       type="DATE"/>
+      <column comment="" key="false" length="10"  name="qty"          nullable="true"  talendType="id_Integer"    type="INT"/>
+      <column comment="" key="false" length="12"  name="amount"       nullable="true"  talendType="id_BigDecimal" type="DECIMAL" precision="2"/>
+      <column comment="" key="false" length="10"  name="currency"     nullable="true"  talendType="id_String"     type="CHAR"/>
+      <column comment="" key="false" length="50"  name="store_code"   nullable="true"  talendType="id_String"     type="VARCHAR"/>
+    </metadata>
+  </node>
+
+  <!-- TRANSFORM: convert currency to USD, add ingestion timestamp -->
+  <node componentName="tMap"
+        componentVersion="0.13"
+        label="tMap_1"
+        posX="464" posY="256">
+    <elementParameter field="TECHNICAL" name="UNIQUE_NAME" value="tMap_1"/>
+    <!-- Mapping:
+         amount_usd     = (row1.currency.equals("USD")) ? row1.amount : row1.amount * context.fx_rate
+         ingested_at    = TalendDate.getCurrentDate("yyyy-MM-dd HH:mm:ss")
+         store_region   = globalMap.get("STORE_REGION_MAP").get(row1.store_code)
+    -->
+    <metadata connector="FLOW" label="out1" name="out1">
+      <column comment="" key="true"  length="20"  name="txn_id"       nullable="false" talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="12"  name="product_code" nullable="true"  talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="10"  name="txn_date"     nullable="true"  talendType="id_Date"       type="DATE"/>
+      <column comment="" key="false" length="10"  name="qty"          nullable="true"  talendType="id_Integer"    type="INT"/>
+      <column comment="" key="false" length="12"  name="amount_usd"   nullable="true"  talendType="id_BigDecimal" type="DECIMAL" precision="4"/>
+      <column comment="" key="false" length="50"  name="store_code"   nullable="true"  talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="30"  name="store_region" nullable="true"  talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="26"  name="ingested_at"  nullable="true"  talendType="id_Timestamp"  type="TIMESTAMP"/>
+    </metadata>
+  </node>
+
+  <!-- SORT: by txn_date DESC, then txn_id -->
+  <node componentName="tSortRow"
+        componentVersion="0.5"
+        label="tSortRow_1"
+        posX="640" posY="256">
+    <elementParameter field="TECHNICAL" name="UNIQUE_NAME"    value="tSortRow_1"/>
+    <elementParameter field="TABLE"     name="SORT_CRITERIA"  value="[{&quot;schema_column&quot;:&quot;txn_date&quot;,&quot;sort&quot;:&quot;DESC&quot;},{&quot;schema_column&quot;:&quot;txn_id&quot;,&quot;sort&quot;:&quot;ASC&quot;}]"/>
+    <metadata connector="FLOW" label="tSortRow_1" name="tSortRow_1">
+      <column comment="" key="true"  length="20"  name="txn_id"       nullable="false" talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="12"  name="product_code" nullable="true"  talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="10"  name="txn_date"     nullable="true"  talendType="id_Date"       type="DATE"/>
+      <column comment="" key="false" length="10"  name="qty"          nullable="true"  talendType="id_Integer"    type="INT"/>
+      <column comment="" key="false" length="12"  name="amount_usd"   nullable="true"  talendType="id_BigDecimal" type="DECIMAL" precision="4"/>
+      <column comment="" key="false" length="50"  name="store_code"   nullable="true"  talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="30"  name="store_region" nullable="true"  talendType="id_String"     type="VARCHAR"/>
+      <column comment="" key="false" length="26"  name="ingested_at"  nullable="true"  talendType="id_Timestamp"  type="TIMESTAMP"/>
+    </metadata>
+  </node>
+
+  <!-- OUTPUT 1: Hive / Delta table -->
+  <node componentName="tHiveOutput"
+        componentVersion="0.17"
+        label="tHiveOutput_1"
+        posX="832" posY="192">
+    <elementParameter field="TECHNICAL" name="UNIQUE_NAME" value="tHiveOutput_1"/>
+    <elementParameter field="TEXT"      name="HOST"        value="&quot;hive-metastore.hadoop.example.com&quot;"/>
+    <elementParameter field="TEXT"      name="PORT"        value="&quot;10000&quot;"/>
+    <elementParameter field="TEXT"      name="DATABASE"    value="&quot;warehouse&quot;"/>
+    <elementParameter field="TEXT"      name="USERNAME"    value="&quot;hive&quot;"/>
+    <elementParameter field="PASSWORD"  name="PASSWORD"    value="&quot;&quot;"/>
+    <elementParameter field="TEXT"      name="TABLE_NAME"  value="&quot;warehouse.transactions_usd&quot;"/>
+    <elementParameter field="TEXT"      name="ACTION"      value="&quot;INSERT&quot;"/>
+  </node>
+
+  <!-- OUTPUT 2: Error / rejection report CSV -->
+  <node componentName="tFileOutputDelimited"
+        componentVersion="0.26"
+        label="tFileOutputDelimited_1"
+        posX="832" posY="336">
+    <elementParameter field="TECHNICAL" name="UNIQUE_NAME"    value="tFileOutputDelimited_1"/>
+    <elementParameter field="TEXT"      name="FILENAME"       value="&quot;${context.error_zone}/ingestion_errors_&quot; + TalendDate.getDate(&quot;yyyyMMdd&quot;) + &quot;.csv&quot;"/>
+    <elementParameter field="TEXT"      name="FIELDSEPARATOR" value="&quot;|&quot;"/>
+    <elementParameter field="CHECK"     name="HEADER"         value="true"/>
+    <elementParameter field="CHECK"     name="APPEND"         value="false"/>
+  </node>
+
+  <!-- Connections -->
+  <connection connectorName="FLOW" label="csv_rows"     lineStyle="0" source="tFileInputDelimited_1" target="tUnite_1"/>
+  <connection connectorName="FLOW" label="json_rows"    lineStyle="0" source="tFileInputJSON_1"     target="tUnite_1"/>
+  <connection connectorName="FLOW" label="parquet_rows" lineStyle="0" source="tFileInputParquet_1"  target="tUnite_1"/>
+  <connection connectorName="FLOW" label="united"       lineStyle="0" source="tUnite_1"             target="tMap_1"/>
+  <connection connectorName="FLOW" label="mapped"       lineStyle="0" source="tMap_1"               target="tSortRow_1"/>
+  <connection connectorName="FLOW" label="to_hive"      lineStyle="0" source="tSortRow_1"           target="tHiveOutput_1"/>
+  <connection connectorName="FLOW" label="to_errors"    lineStyle="0" source="tSortRow_1"           target="tFileOutputDelimited_1"/>
+</talendfile>

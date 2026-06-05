@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<talendfile xmlns:TalendProperties="http://www.talend.org/properties"
+            xmlns:xmi="http://www.omg.org/XMI"
+            xmi:version="2.0"
+            Author="admin"
+            DefaultContext="Default"
+            JobType="standard"
+            Language="JAVA"
+            Version="0.1">
+  <!-- ═══════════════════════════════════════════════════════
+       Job: SalesAggregation
+       Description: Join orders with products from two DB
+                    sources, sort, aggregate by region/product,
+                    output daily summary CSV.
+       Flow:
+         tOracleInput_1 (orders)  ─┐
+                                    ├→ tJoin_1 → tSortRow_1 → tAggregateRow_1 → tFileOutputDelimited_1
+         tOracleInput_2 (products) ─┘
+       ═══════════════════════════════════════════════════════ -->
+
+  <!-- SOURCE 1: Orders from Oracle -->
+  <node componentName="tOracleInput"
+        componentVersion="0.26"
+        label="tOracleInput_1"
+        posX="64" posY="128">
+    <elementParameter field="TECHNICAL" name="UNIQUE_NAME" value="tOracleInput_1"/>
+    <elementParameter field="TEXT"      name="HOST"        value="&quot;oracle-prod.example.com&quot;"/>
+    <elementParameter field="TEXT"      name="PORT"        value="&quot;1521&quot;"/>
+    <elementParameter field="TEXT"      name="DBNAME"      value="&quot;ORCL&quot;"/>
+    <elementParameter field="TEXT"      name="USERNAME"    value="&quot;reports_ro&quot;"/>
+    <elementParameter field="PASSWORD"  name="PASSWORD"    value="&quot;oracle_pass_456&quot;"/>
+    <elementParameter field="MEMO_SQL"  name="QUERY"       value="&quot;SELECT order_id, product_id, region, quantity, unit_price, order_date FROM sales.orders WHERE order_date &gt;= TRUNC(SYSDATE) - 30&quot;"/>
+    <metadata connector="FLOW" label="tOracleInput_1" name="tOracleInput_1">
+      <column comment="" key="true"  length="12"  name="order_id"   nullable="false" talendType="id_Long"       type="NUMBER"/>
+      <column comment="" key="false" length="12"  name="product_id" nullable="false" talendType="id_Integer"   type="NUMBER"/>
+      <column comment="" key="false" length="30"  name="region"     nullable="true"  talendType="id_String"    type="VARCHAR2"/>
+      <column comment="" key="false" length="10"  name="quantity"   nullable="true"  talendType="id_Integer"   type="NUMBER"/>
+      <column comment="" key="false" length="12"  name="unit_price" nullable="true"  talendType="id_BigDecimal" type="NUMBER" precision="2"/>
+      <column comment="" key="false" length="10"  name="order_date" nullable="true"  talendType="id_Date"      type="DATE"/>
+    </metadata>
+  </node>
+
+  <!-- SOURCE 2: Product catalogue from Oracle -->
+  <node componentName="tOracleInput"
+        componentVersion="0.26"
+        label="tOracleInput_2"
+        posX="64" posY="320">
+    <elementParameter field="TECHNICAL" name="UNIQUE_NAME" value="tOracleInput_2"/>
+    <elementParameter field="TEXT"      name="HOST"        value="&quot;oracle-prod.example.com&quot;"/>
+    <elementParameter field="TEXT"      name="PORT"        value="&quot;1521&quot;"/>
+    <elementParameter field="TEXT"      name="DBNAME"      value="&quot;ORCL&quot;"/>
+    <elementParameter field="TEXT"      name="USERNAME"    value="&quot;reports_ro&quot;"/>
+    <elementParameter field="PASSWORD"  name="PASSWORD"    value="&quot;oracle_pass_456&quot;"/>
+    <elementParameter field="MEMO_SQL"  name="QUERY"       value="&quot;SELECT product_id, product_name, category FROM inventory.products&quot;"/>
+    <metadata connector="FLOW" label="tOracleInput_2" name="tOracleInput_2">
+      <column comment="" key="true"  length="12" name="product_id"   nullable="false" talendType="id_Integer" type="NUMBER"/>
+      <column comment="" key="false" length="80" name="product_name" nullable="true"  talendType="id_String"  type="VARCHAR2"/>
+      <column comment="" key="false" length="40" name="category"     nullable="true"  talendType="id_String"  type="VARCHAR2"/>
+    </metadata>
+  </node>
+
+  <!-- JOIN: orders LEFT JOIN products on product_id -->
+  <node componentName="tJoin"
+        componentVersion="0.5"
+        label="tJoin_1"
+        posX="288" posY="224">
+    <elementParameter field="TECHNICAL"  name="UNIQUE_NAME"  value="tJoin_1"/>
+    <elementParameter field="TEXT"       name="JOIN_KEY"     value="&quot;product_id&quot;"/>
+    <elementParameter field="TEXT"       name="JOIN_TYPE"    value="&quot;LEFT_OUTER&quot;"/>
+    <metadata connector="FLOW" label="tJoin_1" name="tJoin_1">
+      <column comment="" key="true"  length="12"  name="order_id"    nullable="false" talendType="id_Long"       type="NUMBER"/>
+      <column comment="" key="false" length="12"  name="product_id"  nullable="false" talendType="id_Integer"   type="NUMBER"/>
+      <column comment="" key="false" length="80"  name="product_name" nullable="true"  talendType="id_String"   type="VARCHAR2"/>
+      <column comment="" key="false" length="40"  name="category"    nullable="true"  talendType="id_String"    type="VARCHAR2"/>
+      <column comment="" key="false" length="30"  name="region"      nullable="true"  talendType="id_String"    type="VARCHAR2"/>
+      <column comment="" key="false" length="10"  name="quantity"    nullable="true"  talendType="id_Integer"   type="NUMBER"/>
+      <column comment="" key="false" length="12"  name="unit_price"  nullable="true"  talendType="id_BigDecimal" type="NUMBER" precision="2"/>
+      <column comment="" key="false" length="10"  name="order_date"  nullable="true"  talendType="id_Date"      type="DATE"/>
+    </metadata>
+  </node>
+
+  <!-- SORT: by region, then category -->
+  <node componentName="tSortRow"
+        componentVersion="0.5"
+        label="tSortRow_1"
+        posX="448" posY="224">
+    <elementParameter field="TECHNICAL" name="UNIQUE_NAME"    value="tSortRow_1"/>
+    <elementParameter field="TABLE"     name="SORT_CRITERIA"  value="[{&quot;schema_column&quot;:&quot;region&quot;,&quot;sort&quot;:&quot;ASC&quot;},{&quot;schema_column&quot;:&quot;category&quot;,&quot;sort&quot;:&quot;ASC&quot;}]"/>
+    <metadata connector="FLOW" label="tSortRow_1" name="tSortRow_1">
+      <column comment="" key="false" length="30"  name="region"      nullable="true"  talendType="id_String"    type="VARCHAR2"/>
+      <column comment="" key="false" length="40"  name="category"    nullable="true"  talendType="id_String"    type="VARCHAR2"/>
+      <column comment="" key="false" length="80"  name="product_name" nullable="true"  talendType="id_String"   type="VARCHAR2"/>
+      <column comment="" key="false" length="10"  name="quantity"    nullable="true"  talendType="id_Integer"   type="NUMBER"/>
+      <column comment="" key="false" length="12"  name="unit_price"  nullable="true"  talendType="id_BigDecimal" type="NUMBER" precision="2"/>
+      <column comment="" key="false" length="10"  name="order_date"  nullable="true"  talendType="id_Date"      type="DATE"/>
+    </metadata>
+  </node>
+
+  <!-- AGGREGATE: SUM(quantity), SUM(quantity*unit_price) GROUP BY region, category, order_date -->
+  <node componentName="tAggregateRow"
+        componentVersion="0.8"
+        label="tAggregateRow_1"
+        posX="608" posY="224">
+    <elementParameter field="TECHNICAL" name="UNIQUE_NAME"    value="tAggregateRow_1"/>
+    <elementParameter field="TABLE"     name="GROUP_BY"       value="[{&quot;schema_column&quot;:&quot;region&quot;},{&quot;schema_column&quot;:&quot;category&quot;},{&quot;schema_column&quot;:&quot;order_date&quot;}]"/>
+    <elementParameter field="TABLE"     name="OPERATIONS"     value="[{&quot;schema_column&quot;:&quot;total_qty&quot;,&quot;operator&quot;:&quot;SUM&quot;,&quot;column&quot;:&quot;quantity&quot;},{&quot;schema_column&quot;:&quot;total_revenue&quot;,&quot;operator&quot;:&quot;SUM&quot;,&quot;column&quot;:&quot;quantity*unit_price&quot;}]"/>
+    <metadata connector="FLOW" label="tAggregateRow_1" name="tAggregateRow_1">
+      <column comment="" key="false" length="30"  name="region"        nullable="true"  talendType="id_String"    type="VARCHAR2"/>
+      <column comment="" key="false" length="40"  name="category"      nullable="true"  talendType="id_String"    type="VARCHAR2"/>
+      <column comment="" key="false" length="10"  name="order_date"    nullable="true"  talendType="id_Date"      type="DATE"/>
+      <column comment="" key="false" length="10"  name="total_qty"     nullable="true"  talendType="id_Long"      type="NUMBER"/>
+      <column comment="" key="false" length="14"  name="total_revenue" nullable="true"  talendType="id_BigDecimal" type="NUMBER" precision="2"/>
+    </metadata>
+  </node>
+
+  <!-- OUTPUT: Daily summary CSV on shared volume -->
+  <node componentName="tFileOutputDelimited"
+        componentVersion="0.26"
+        label="tFileOutputDelimited_1"
+        posX="800" posY="224">
+    <elementParameter field="TECHNICAL" name="UNIQUE_NAME"    value="tFileOutputDelimited_1"/>
+    <elementParameter field="TEXT"      name="FILENAME"       value="&quot;/mnt/reports/sales/daily_summary_&quot; + TalendDate.getDate(&quot;yyyyMMdd&quot;) + &quot;.csv&quot;"/>
+    <elementParameter field="TEXT"      name="FIELDSEPARATOR" value="&quot;,&quot;"/>
+    <elementParameter field="CHECK"     name="HEADER"         value="true"/>
+    <elementParameter field="CHECK"     name="APPEND"         value="false"/>
+    <elementParameter field="TEXT"      name="ROWSEPARATOR"   value="&quot;\n&quot;"/>
+  </node>
+
+  <!-- Connections -->
+  <connection connectorName="FLOW" label="orders"   lineStyle="0" source="tOracleInput_1"     target="tJoin_1"/>
+  <connection connectorName="FLOW" label="products" lineStyle="0" source="tOracleInput_2"     target="tJoin_1"/>
+  <connection connectorName="FLOW" label="joined"   lineStyle="0" source="tJoin_1"            target="tSortRow_1"/>
+  <connection connectorName="FLOW" label="sorted"   lineStyle="0" source="tSortRow_1"         target="tAggregateRow_1"/>
+  <connection connectorName="FLOW" label="agg"      lineStyle="0" source="tAggregateRow_1"    target="tFileOutputDelimited_1"/>
+</talendfile>
